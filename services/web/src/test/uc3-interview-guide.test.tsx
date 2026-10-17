@@ -64,9 +64,9 @@ describe('interview guide (UC-3)', () => {
 
   it('is reached from the shortlisted candidate in the ranked list', async () => {
     const c = shortlisted()
-    const { user } = await renderSignedIn(`/job-openings/jo_seed_backend?candidate=${c.candidateId}`)
+    const { user } = await renderSignedIn(`/job-openings/jo_seed_backend?resume=${c.resumeId}`)
     const drawer = await screen.findByRole('dialog')
-    await user.click(await within(drawer).findByRole('link', { name: 'Generate interview guide' }))
+    await user.click(await within(drawer).findByRole('link', { name: 'Interview guide' }))
     expect(await screen.findByRole('heading', { name: 'Interview guide' })).toBeInTheDocument()
   })
 })

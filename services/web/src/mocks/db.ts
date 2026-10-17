@@ -1,15 +1,7 @@
 // In-memory stand-in for the services behind the Gateway. Every record is synthetic — no real
 // resume or candidate data, ever (PDPA). Reset to the seed with resetDb() or a page reload.
 
-import type {
-  CandidateProfile,
-  Classification,
-  Criterion,
-  CriterionAssessment,
-  InterviewGuide,
-  JobOpening,
-  Role,
-} from '../api/types'
+import type { Classification, Criterion, InterviewGuide, JobOpening, Role } from '../api/types'
 
 export interface MockMember {
   id: string
@@ -36,17 +28,28 @@ export interface MockBatch {
   entries: MockEntry[]
 }
 
+/** Resume Processing's verdict on one criterion. Hiring reads it; it does not store it. */
+export interface MockAssessment {
+  criterion: string
+  met: boolean
+  score: number
+  evidence: string
+}
+
 export interface MockResult {
+  resumeId: string
   candidateId: string
   jobOpeningId: string
   batchId: string
   fileName: string
   aiScore: number
-  override?: { score: number; reason: string }
-  assessments: CriterionAssessment[]
+  overrideScore?: number
+  overriddenAt?: string
+  assessments: MockAssessment[]
   justification: string
-  profile: CandidateProfile
   shortlisted: boolean
+  shortlistedAt?: string
+  completedAt: string
 }
 
 export const config = {
@@ -125,27 +128,19 @@ const EVIDENCE_MET = [
   (c: string) => `Day-to-day work with ${c} as Senior Engineer, 2021–present.`,
   (c: string) => `Certification and a production case study covering ${c}.`,
 ]
-const SUMMARIES = [
-  'Led the migration of a payments service to Go, 2021–2024.',
-  'Designed event consumers processing 2M messages per day.',
-  'Owned PostgreSQL schema design and query tuning for the core product.',
-  'Built CI pipelines with GitHub Actions and Docker.',
-]
 const EVIDENCE_UNMET = [
   'No mention of this in the resume.',
   'Only coursework-level exposure is described.',
   'Experience listed is under the required duration.',
 ]
 
-const SKILLS = ['Go', 'Python', 'PostgreSQL', 'Kafka', 'Docker', 'Kubernetes', 'gRPC', 'React', 'AWS']
-
 /**
- * What the Resume Processing pipeline would produce for one resume: a profile, a per-criterion
- * assessment and a justification. Deterministic per file name and criteria.
+ * What the Resume Processing pipeline would produce for one resume: a per-criterion assessment,
+ * a score and a justification. Deterministic per file name and criteria.
  */
 export function screen(fileName: string, criteria: Criterion[]) {
   const seed = hash01(fileName)
-  const assessments: CriterionAssessment[] = criteria.map((c, i) => {
+  const assessments: MockAssessment[] = criteria.map((c, i) => {
     const r = hash01(`${fileName}#${c.name}`)
     const met = c.classification === 'must-have' ? r > 0.3 : r > 0.4
     return {
@@ -166,29 +161,7 @@ export function screen(fileName: string, criteria: Criterion[]) {
       `Strongest match is ${assessments.find((a) => a.met)?.criterion ?? 'none'}.`
     : `Meets every must-have. ${years} years of relevant experience; strongest evidence: ` +
       `"${assessments.reduce((a, b) => (a.score >= b.score ? a : b)).evidence}"`
-  const profile: CandidateProfile = {
-    work_history: [
-      {
-        title: seed > 0.5 ? 'Senior Software Engineer' : 'Software Engineer',
-        organisation: ['Example Fintech Co.', 'Sample Logistics Ltd.', 'Demo Retail Group'][Math.floor(seed * 3)],
-        start: String(2026 - years),
-        end: '',
-        summary: SUMMARIES[Math.floor(seed * SUMMARIES.length)],
-      },
-      {
-        title: 'Junior Developer',
-        organisation: 'Placeholder Studio',
-        start: String(2026 - years - 2),
-        end: String(2026 - years),
-        summary: 'Maintained internal tools and wrote integration tests.',
-      },
-    ],
-    skills: SKILLS.filter((_, i) => hash01(`${fileName}@${i}`) > 0.45),
-    education: [
-      { qualification: 'B.Eng. Computer Engineering', institution: 'Example University', completed: String(2026 - years - 3) },
-    ],
-  }
-  return { aiScore, assessments, justification, profile }
+  return { aiScore, assessments, justification }
 }
 
 function seed() {
@@ -253,12 +226,14 @@ function seed() {
   db.results = batch.entries
     .filter((e) => !e.reviewReason)
     .map((e) => ({
+      resumeId: e.resumeId,
       candidateId: e.candidateId,
       jobOpeningId: backend.id,
       batchId: batch.id,
       fileName: e.fileName,
       ...screen(e.fileName, backend.criteria),
       shortlisted: false,
+      completedAt: new Date(e.readyAt).toISOString(),
     }))
 
   // The best qualified candidate is shortlisted, so UC-3 can be shown straight away.

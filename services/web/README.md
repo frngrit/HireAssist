@@ -7,11 +7,10 @@ opening), UC-2 (batch screening) and UC-3 (interview guides). It talks only to t
 React 19 + TypeScript, built with Vite; Mantine for components; TanStack Query for server state;
 MSW for the mock backend. English and Thai (NFR-16).
 
-**Status:** every screen works against a **mock backend** that runs in the browser. No backend
-service is needed to run, demo or test it. Against the real Gateway, signing in (including
-replacing a temporary password), job openings and the interview guide calls work today. The
-proposal, screening and candidate endpoints are not served yet; they are a *proposal*, see
-[Contracts](#contracts).
+**Status:** every screen works against the real Gateway — sign-in (including replacing a
+temporary password), job openings with AI-proposed criteria, batch screening and interview
+guides — and against a **mock backend** that runs in the browser, so no service is needed to run,
+demo or test it. Both follow the services' published contracts, see [Contracts](#contracts).
 
 ## Run it
 
@@ -71,6 +70,7 @@ It behaves like the real system where the demo needs it:
   candidate, so every state can be shown without setup.
 - The criteria proposal and the interview questions are simple templates, not a model. They show
   the shapes, not the quality.
+- **Files that are not PDFs** are left out of a batch and listed, as the Hiring Service does.
 
 Everything in the mock data is synthetic. Never put a real resume in the demo (PDPA).
 
@@ -95,31 +95,39 @@ asks for a new password, calls `POST /auth/change-password`, and signs in with i
 
 ## Contracts
 
-`src/api/types.ts` marks every shape as **REAL** or **PROPOSED**.
+Every shape in `src/api/types.ts` is copied from the service that owns it.
 
-| Endpoint (Gateway path) | Operation | Status |
+| Endpoint (Gateway path) | Operation | Source |
 |---|---|---|
-| `POST /auth/sign-in` · `POST /auth/refresh` · `POST /auth/change-password` | `Identity.authenticateMember()`, `changePassword()` | **Real** — the Identity Service, with the refresh token as the gateway's cookie |
-| `POST /auth/sign-out` | the gateway | **Real** — clears the refresh cookie |
-| `GET/POST /job-openings` · `GET /job-openings/{id}` · `PUT …/criteria` · `POST …/pause` · `…/resume` · `…/close` | Hiring, UC-1 | **Real** — the Hiring Service's OpenAPI document |
-| `POST /job-openings/proposals` | `Hiring.proposeJobOpening()` | **Proposed** |
-| `POST /job-openings/{id}/batches` (multipart, field `files`) · `GET …/batches` | `submitScreeningBatch()`, `getBatchStatus()` | **Proposed** |
-| `GET /job-openings/{id}/results?min_score=&criterion=` | `getRankedResults()` | **Proposed** |
-| `GET /job-openings/{id}/candidates/{cid}` · `PUT …/override` · `POST …/shortlist` | `getRankedResults()`, `overrideScore()`, `shortlistCandidate()` | **Proposed** |
-| `GET/POST /job-openings/{id}/candidates/{cid}/interview-guide` · `POST …/regenerate` · `PUT …/questions` · `PUT …/questions/{qid}/note` | `getInterviewGuide()`, `generateInterviewGuide()`, `reviseGuide()`, `recordInterviewNote()` | **Real** — the Hiring Service's OpenAPI document. Generating needs Resume Processing and the AI Service behind Hiring; without them it answers 502 |
+| `POST /auth/sign-in` · `POST /auth/refresh` · `POST /auth/change-password` | `Identity.authenticateMember()`, `changePassword()` | The Identity Service, with the refresh token as the gateway's cookie |
+| `POST /auth/sign-out` | the gateway | Clears the refresh cookie |
+| `GET/POST /job-openings` · `GET /job-openings/{id}` · `PUT …/criteria` · `POST …/pause` · `…/resume` · `…/close` | Hiring, UC-1 | The Hiring Service's OpenAPI document |
+| `POST /job-openings/propose` | `proposeJobOpening()` | 〃 — 502 when the AI Service is down, and the app offers manual entry (FR-1.5) |
+| `POST /job-openings/{id}/batches` (multipart, field `resumes`) · `GET …/batches/{batchId}` | `submitScreeningBatch()`, `getBatchStatus()` | 〃 |
+| `GET /job-openings/{id}/results?min_score=&criterion=` | `getRankedResults()` | 〃 |
+| `GET /job-openings/{id}/results/{resumeId}` · `POST …/override` · `POST …/shortlist` | `getScreeningResult()`, `overrideScore()`, `shortlistCandidate()` | 〃 |
+| `GET/POST /job-openings/{id}/candidates/{cid}/interview-guide` · `POST …/regenerate` · `PUT …/questions` · `PUT …/questions/{qid}/note` | `getInterviewGuide()`, `generateInterviewGuide()`, `reviseGuide()`, `recordInterviewNote()` | 〃 — needs Resume Processing and the AI Service behind Hiring; without them it answers 502 |
 
-Every proposed path sits under `/job-openings/`, so the Gateway's one prefix route already
-reaches it. Two choices the owners should confirm:
+How the app works within that contract:
 
-- **Criteria have no id.** The Hiring contract identifies a criterion only by its name, so the
-  results filter, the assessments and the interview questions refer to criteria by name. Two
-  criteria with the same name would be ambiguous.
-- **Shortlisting gates the interview guide** in the app and the mock, as UC-3's precondition
-  says. The Hiring Service does not check it yet, because shortlisting is not built.
-- **Candidates are shown by file name.** The profile carries no name or contact details (they are
-  excluded before scoring), so the resume's file name is the only label.
+- **There is no operation that lists an opening's batches**, so the batch panel shows the batches
+  the ranked results mention plus the ones uploaded from this browser (kept in `localStorage`),
+  each fetched by id. A batch uploaded from another browser appears once its first resume has a
+  result. A `GET /job-openings/{id}/batches` in the Hiring Service would remove the workaround.
+- **An override is a score only.** The contract keeps the original score beside it (FR-2.8) but
+  takes no reason, so the app asks for none.
+- **The criterion filter offers must-haves only**: screening reports which must-haves a resume
+  missed, and judges nice-to-haves only through the score.
+- **Screening is keyed by resume, interview guides by candidate.** The drawer opens a resume
+  (`?resume=`), and the guide is reached through the candidate id the result carries.
+- **The written justification may be missing.** Hiring reads it from Resume Processing when a
+  resume is opened, and shows the record without it when that service does not answer.
+- **Shortlisting gates the interview guide** in the app and the mock, as UC-3's precondition says.
+  The Hiring Service does not check it yet.
+- **Candidates are shown by file name.** Nothing the app receives carries a name or contact
+  details, so the resume's file name is the only label.
 
-When a service owner changes a proposed shape, change `types.ts`, the matching handler in
+When a service changes its contract, change `types.ts`, the matching handler in
 `src/mocks/handlers.ts`, and the screen. The type checker will point at the screen.
 
 ## Layout

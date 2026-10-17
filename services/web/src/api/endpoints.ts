@@ -3,7 +3,6 @@
 
 import { api, COOKIE_TRANSPORT } from './client'
 import type {
-  CandidateDetail,
   Criterion,
   InterviewGuide,
   JobOpening,
@@ -11,8 +10,10 @@ import type {
   JobOpeningProposal,
   QuestionDraft,
   Outcome,
-  RankedCandidate,
+  RankedResults,
+  ScreenedCandidate,
   ScreeningBatch,
+  ScreeningResult,
   Session,
   SessionMember,
 } from './types'
@@ -44,7 +45,7 @@ export const getJobOpening = (id: string) => api<JobOpening>(`/job-openings/${id
 
 /** Hiring.proposeJobOpening() — the Hiring Service asks the AI Service; nothing is stored. */
 export const proposeJobOpening = (description: string) =>
-  api<JobOpeningProposal>('/job-openings/proposals', { method: 'POST', json: { description } })
+  api<JobOpeningProposal>('/job-openings/propose', { method: 'POST', json: { description } })
 
 /** Hiring.createJobOpening() */
 export const createJobOpening = (draft: JobOpeningDraft) =>
@@ -68,47 +69,45 @@ export const closeOpening = (id: string, outcome: Outcome) =>
 
 // ── UC-2 → Hiring ─────────────────────────────────────────────────────────────────────────
 
-/** Hiring.submitScreeningBatch() — answers as soon as the batch is accepted (FR-2.2). */
+/** Hiring.submitScreeningBatch() — answers 202 as soon as the batch is recorded (FR-2.2). */
 export const submitScreeningBatch = (jobOpeningId: string, files: File[]) => {
   const form = new FormData()
-  for (const file of files) form.append('files', file)
+  for (const file of files) form.append('resumes', file)
   return api<ScreeningBatch>(`/job-openings/${jobOpeningId}/batches`, { method: 'POST', body: form })
 }
 
-/** Hiring.getBatchStatus(), for every batch of the opening. */
-export const listBatches = (jobOpeningId: string) =>
-  api<ScreeningBatch[]>(`/job-openings/${jobOpeningId}/batches`)
+/** Hiring.getBatchStatus(). There is no operation that lists an opening's batches. */
+export const getBatch = (jobOpeningId: string, batchId: string) =>
+  api<ScreeningBatch>(`/job-openings/${jobOpeningId}/batches/${batchId}`)
 
 export interface ResultsFilter {
   minScore?: number
+  /** A must-have's name: screening reports only which must-haves a resume missed. */
   criterion?: string
 }
 
-/** Hiring.getRankedResults() — ranked by score; resumes needing review are excluded (FR-2.7). */
+/** Hiring.getRankedResults() — qualified first, then by score; unreadable resumes apart (FR-2.6, FR-2.7). */
 export const getRankedResults = (jobOpeningId: string, filter: ResultsFilter = {}) => {
   const query = new URLSearchParams()
   if (filter.minScore) query.set('min_score', String(filter.minScore))
   if (filter.criterion) query.set('criterion', filter.criterion)
   const qs = query.toString()
-  return api<RankedCandidate[]>(`/job-openings/${jobOpeningId}/results${qs ? `?${qs}` : ''}`)
+  return api<RankedResults>(`/job-openings/${jobOpeningId}/results${qs ? `?${qs}` : ''}`)
 }
 
-/** Hiring.getRankedResults() for one candidate, joined with Resume Processing's justification. */
-export const getCandidate = (jobOpeningId: string, candidateId: string) =>
-  api<CandidateDetail>(`/job-openings/${jobOpeningId}/candidates/${candidateId}`)
+const resultPath = (jobOpeningId: string, resumeId: string) => `/job-openings/${jobOpeningId}/results/${resumeId}`
 
-/** Hiring.overrideScore() — the AI's original score is kept (FR-2.8). */
-export const overrideScore = (jobOpeningId: string, candidateId: string, score: number, reason: string) =>
-  api<RankedCandidate>(`/job-openings/${jobOpeningId}/candidates/${candidateId}/override`, {
-    method: 'PUT',
-    json: { score, reason },
-  })
+/** Hiring.getScreeningResult() — the record, with the justification read from Resume Processing. */
+export const getScreeningResult = (jobOpeningId: string, resumeId: string) =>
+  api<ScreenedCandidate>(resultPath(jobOpeningId, resumeId))
+
+/** Hiring.overrideScore() — the original score is kept (FR-2.8). */
+export const overrideScore = (jobOpeningId: string, resumeId: string, score: number) =>
+  api<ScreeningResult>(`${resultPath(jobOpeningId, resumeId)}/override`, { method: 'POST', json: { score } })
 
 /** Hiring.shortlistCandidate() */
-export const shortlistCandidate = (jobOpeningId: string, candidateId: string) =>
-  api<RankedCandidate>(`/job-openings/${jobOpeningId}/candidates/${candidateId}/shortlist`, {
-    method: 'POST',
-  })
+export const shortlistCandidate = (jobOpeningId: string, resumeId: string) =>
+  api<ScreeningResult>(`${resultPath(jobOpeningId, resumeId)}/shortlist`, { method: 'POST' })
 
 // ── UC-3 → Hiring ─────────────────────────────────────────────────────────────────────────
 

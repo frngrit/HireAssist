@@ -7,15 +7,22 @@ import { server } from './setup'
 
 const pdf = (name: string) => new File(['%PDF-1.7 synthetic'], name, { type: 'application/pdf' })
 
+/** Each row's score, and whether the candidate meets every must-have. */
+const rowsAsRanked = (rows: HTMLElement[]) =>
+  rows.map((r) => ({
+    score: Number(within(r).getAllByText(/^\d+$/)[1].textContent),
+    qualified: within(r).queryByText('All met') !== null,
+  }))
+
 describe('batch screening (UC-2)', () => {
-  it('ranks the seeded candidates by score, highest first', async () => {
+  it('ranks qualified candidates first, then by score (FR-2.5, FR-2.6)', async () => {
     await renderSignedIn('/job-openings/jo_seed_backend')
-    const rows = await screen.findAllByTestId('result-row')
-    const scores = rows.map((r) => Number(within(r).getAllByText(/^\d+$/)[1].textContent))
-    expect(scores).toEqual([...scores].sort((a, b) => b - a))
+    const ranked = rowsAsRanked(await screen.findAllByTestId('result-row'))
+    const expected = [...ranked].sort((a, b) => Number(b.qualified) - Number(a.qualified) || b.score - a.score)
+    expect(ranked).toEqual(expected)
     // The scanned resume is flagged for review, never ranked (FR-2.7).
     expect(screen.queryByRole('cell', { name: 'scanned-resume-007.pdf' })).not.toBeInTheDocument()
-    expect(screen.getByText('scanned-resume-007.pdf')).toBeInTheDocument()
+    expect(await screen.findByText('scanned-resume-007.pdf')).toBeInTheDocument()
   })
 
   it('accepts a batch, and its results join the ranking as they arrive', async () => {
@@ -38,24 +45,44 @@ describe('batch screening (UC-2)', () => {
     expect(within(drawer).getAllByText(/Evidence:/).length).toBe(4)
   })
 
-  it('keeps the AI score beside a recruiter override (FR-2.8)', async () => {
+  it('still shows the record when the justification is unavailable', async () => {
+    server.use(
+      http.get(`${API_BASE}/job-openings/:id/results/:resumeId`, () =>
+        HttpResponse.json({
+          result: { resume_id: 'rs_x', batch_id: 'sb_x', file_name: 'resume-x.pdf', status: 'screened', score: 70, qualified: true, shortlisted: false },
+          justification: null,
+        }),
+      ),
+    )
+    const { user } = await renderSignedIn('/job-openings/jo_seed_backend')
+    await user.click((await screen.findAllByTestId('result-row'))[0])
+    const drawer = await screen.findByRole('dialog')
+    expect(await within(drawer).findByText(/justification is not available/)).toBeInTheDocument()
+    expect(within(drawer).getByText('resume-x.pdf')).toBeInTheDocument()
+  })
+
+  it('keeps the original score beside a recruiter override (FR-2.8)', async () => {
     const { user } = await renderSignedIn('/job-openings/jo_seed_backend')
     const rows = await screen.findAllByTestId('result-row')
-    await user.click(rows[rows.length - 1])
+    const last = rows[rows.length - 1]
+    const fileName = within(last).getAllByRole('cell')[1].textContent!
+    await user.click(last)
     const drawer = await screen.findByRole('dialog')
     const score = await within(drawer).findByLabelText(/New score/)
     await user.clear(score)
     await user.type(score, '99')
-    await user.type(within(drawer).getByLabelText('Reason'), 'Strong referral from the team lead')
     await user.click(within(drawer).getByRole('button', { name: 'Save' }))
 
     expect(await within(drawer).findByText(/AI score:/)).toBeInTheDocument()
-    await waitFor(() => expect(within(screen.getAllByTestId('result-row')[0]).getByText('99')).toBeInTheDocument())
+    await waitFor(() => {
+      const row = screen.getAllByTestId('result-row').find((r) => within(r).queryByText(fileName))!
+      expect(within(row).getByText('99')).toBeInTheDocument()
+    })
   })
 
   it('says plainly when the Hiring Service does not serve screening yet', async () => {
     // The router's own 404: plain text, not a service's JSON error.
-    server.use(http.get(`${API_BASE}/job-openings/:id/batches`, () => new HttpResponse('404 page not found', { status: 404 })))
+    server.use(http.get(`${API_BASE}/job-openings/:id/results`, () => new HttpResponse('404 page not found', { status: 404 })))
     await renderSignedIn('/job-openings/jo_seed_backend')
     expect(await screen.findByText('Screening is not available yet')).toBeInTheDocument()
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument()

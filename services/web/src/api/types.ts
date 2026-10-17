@@ -1,12 +1,9 @@
 // Shapes of everything the web app sends to and receives from the API Gateway.
 //
-// Two kinds of contract live here, and the difference matters:
-//
-//  * REAL — copied from a service's published contract. Sign-in follows the Identity Service;
-//    job openings and interview guides follow the Hiring Service's OpenAPI document.
-//  * PROPOSED — no service serves these yet. They are this app's proposal, shaped by the
-//    functional requirements and the AI Service's .proto, and the mocks implement them. The
-//    owning service confirms or changes them; when it does, this file changes to match.
+// Every contract here is copied from the service that owns it: sign-in from the Identity
+// Service, and job openings, proposals, screening and interview guides from the Hiring Service's
+// OpenAPI document. The mocks implement the same shapes. When a service changes its contract,
+// this file changes to match.
 
 // ── Auth (REAL — Gateway → Identity, ADR-009) ─────────────────────────────────────────────
 
@@ -66,17 +63,25 @@ export interface JobOpening {
   opened_at: string
 }
 
-// ── Proposal (PROPOSED — Hiring.proposeJobOpening(), FR-1.2, FR-1.5) ──────────────────────
+// ── Proposal (REAL — Hiring Service OpenAPI, proposeJobOpening(), FR-1.1–FR-1.5) ─────────
 
-/** POST /job-openings/proposals. Nothing is stored; the Recruiter edits it, then creates. */
+/** Who produced an AI answer. `canned` means scripted demo answers, not a model. */
+export interface ModelAttribution {
+  provider: string
+  model: string
+  prompt_version: string
+}
+
+/** POST /job-openings/propose. Nothing is stored; the Recruiter edits it, then creates. */
 export interface JobOpeningProposal {
-  proposed_title: string
+  title: string
   criteria: Criterion[]
   /** Parts of the description the model could not interpret (FR-1.5). */
   uninterpreted: string[]
+  attribution: ModelAttribution
 }
 
-// ── Screening (PROPOSED — Hiring, UC-2) ───────────────────────────────────────────────────
+// ── Screening (REAL — Hiring Service OpenAPI, UC-2) ───────────────────────────────────────
 
 export type EntryStatus = 'pending' | 'screened' | 'needs_review' | 'failed'
 
@@ -84,60 +89,74 @@ export interface BatchEntry {
   resume_id: string
   file_name: string
   status: EntryStatus
-  /** Why the resume needs manual review or failed (FR-2.7). */
-  reason?: string
 }
 
 export interface ScreeningBatch {
   id: string
   job_opening_id: string
   submitted_at: string
-  /** Finished once every entry is terminal (FR-2.12). */
-  status: 'processing' | 'finished'
-  total: number
+  /** True once no resume is pending (FR-2.12). */
+  complete: boolean
   counts: Record<EntryStatus, number>
   entries: BatchEntry[]
+  /** Only in the answer to the upload: files left out of the batch, and why. */
+  rejected?: { file_name: string; reason: string }[]
 }
 
-export type DecisionState = 'shortlisted' | 'undecided' | 'not_qualified'
-
-/** One row of GET /job-openings/{id}/results, ranked by score (FR-2.6). */
-export interface RankedCandidate {
-  candidate_id: string
-  file_name: string
+/** One resume as the Recruiter sees it (FR-2.5). Score fields appear once it is screened. */
+export interface ScreeningResult {
+  resume_id: string
   batch_id: string
-  /** The score the ranking uses: the override when there is one, otherwise the AI's. */
-  score: number
-  ai_score: number
-  override?: { score: number; reason: string }
-  meets_must_haves: boolean
-  /** Names of the must-have criteria that were not met (FR-2.5). */
-  unmet_must_haves: string[]
-  decision: DecisionState
+  file_name: string
+  status: EntryStatus
+  /** Assigned by the Resume Processing Service; UC-3 is keyed by it. */
+  candidate_id?: string
+  /** The score ranked on: the Recruiter's override when there is one. */
+  score?: number
+  /** Present only when overridden: screening's own score (FR-2.8). */
+  original_score?: number
+  overridden_at?: string
+  /** False when a must-have is unmet (FR-2.5). */
+  qualified?: boolean
+  unmet_must_haves?: string[]
+  shortlisted: boolean
+  shortlisted_at?: string
+  /** Why the resume needs review, or failed (FR-2.7). */
+  reason?: string
+  completed_at?: string
 }
 
-export interface CriterionAssessment {
+/** GET /job-openings/{id}/results: qualified first, then by score (FR-2.6). */
+export interface RankedResults {
+  job_opening_id: string
+  /** Resumes still being screened. */
+  pending: number
+  ranked: ScreeningResult[]
+  /** Resumes that could not be screened, never ranked (FR-2.7). */
+  needs_review: ScreeningResult[]
+}
+
+export interface Evidence {
   criterion: string
+  classification: Classification
   met: boolean
   score: number
-  /** The words in the resume this judgement rests on. */
+  /** The words in the resume the verdict rests on. */
   evidence: string
 }
 
-/** The fields mirror the AI Service's CandidateProfile: no name, contact or protected attributes. */
-export interface CandidateProfile {
-  work_history: { title: string; organisation: string; start: string; end: string; summary: string }[]
-  skills: string[]
-  education: { qualification: string; institution: string; completed: string }[]
+/** GET /job-openings/{id}/results/{resumeId} */
+export interface ScreenedCandidate {
+  result: ScreeningResult
+  /** Read from Resume Processing; null until screened, or when that service did not answer. */
+  justification: { text: string; evidence: Evidence[] } | null
 }
 
-/** GET /job-openings/{id}/candidates/{candidateId} */
-export interface CandidateDetail extends RankedCandidate {
-  justification: string
-  assessments: CriterionAssessment[]
-  profile: CandidateProfile
-  has_interview_guide: boolean
-}
+/** Not on the wire: the decision the UI shows, derived from a result. */
+export type DecisionState = 'shortlisted' | 'undecided' | 'not_qualified'
+
+export const decisionOf = (r: ScreeningResult): DecisionState =>
+  r.qualified === false ? 'not_qualified' : r.shortlisted ? 'shortlisted' : 'undecided'
 
 // ── Interview guides (REAL — Hiring Service OpenAPI, UC-3) ────────────────────────────────
 

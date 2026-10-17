@@ -3,18 +3,19 @@ import { useDebouncedValue } from '@mantine/hooks'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { getRankedResults } from '../../api/endpoints'
-import type { JobOpening } from '../../api/types'
+import { decisionOf, type JobOpening } from '../../api/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { DecisionBadge, PageLoader, QueryError } from '../common'
 import { scoreColor } from '../rules'
 import { POLL_MS } from './poll'
 
 /**
- * The ranked list (FR-2.6): highest score first, re-ranked as results arrive, filterable by
- * minimum score and by a criterion the candidate meets. Resumes needing review never appear
- * here (FR-2.7) — they are listed under their batch instead.
+ * The ranked list (FR-2.6): candidates who meet every must-have first, then by score, re-ranked
+ * as results arrive. Filterable by minimum score and by a must-have the candidate meets —
+ * screening reports only which must-haves a resume missed, so nice-to-haves cannot be filtered
+ * on. Resumes needing review never appear here (FR-2.7); they are listed under their batch.
  */
-export function ResultsTable({ opening, live, onOpen }: { opening: JobOpening; live: boolean; onOpen: (candidateId: string) => void }) {
+export function ResultsTable({ opening, live, onOpen }: { opening: JobOpening; live: boolean; onOpen: (resumeId: string) => void }) {
   const { t } = useI18n()
   const [minScore, setMinScore] = useState<number>(0)
   const [criterion, setCriterion] = useState<string | null>(null)
@@ -52,7 +53,7 @@ export function ResultsTable({ opening, live, onOpen }: { opening: JobOpening; l
             w={260}
             clearable
             placeholder={t('results.anyCriterion')}
-            data={opening.criteria.map((c) => c.name)}
+            data={opening.criteria.filter((c) => c.classification === 'must-have').map((c) => c.name)}
             value={criterion}
             onChange={setCriterion}
           />
@@ -63,7 +64,7 @@ export function ResultsTable({ opening, live, onOpen }: { opening: JobOpening; l
         <PageLoader />
       ) : results.isError ? (
         <QueryError error={results.error} onRetry={() => results.refetch()} />
-      ) : results.data.length === 0 ? (
+      ) : results.data.ranked.length === 0 ? (
         <Text c="dimmed" ta="center" py="lg">
           {filtered ? t('results.noMatch') : t('results.empty')}
         </Text>
@@ -79,39 +80,37 @@ export function ResultsTable({ opening, live, onOpen }: { opening: JobOpening; l
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {results.data.map((r, i) => (
-              <Table.Tr key={r.candidate_id} style={{ cursor: 'pointer' }} onClick={() => onOpen(r.candidate_id)} data-testid="result-row">
+            {results.data.ranked.map((r, i) => (
+              <Table.Tr key={r.resume_id} style={{ cursor: 'pointer' }} onClick={() => onOpen(r.resume_id)} data-testid="result-row">
                 <Table.Td c="dimmed">{i + 1}</Table.Td>
                 <Table.Td fw={500}>{r.file_name}</Table.Td>
                 <Table.Td>
                   <Group gap={6}>
-                    <Badge color={scoreColor(r.score)} variant="filled" size="lg" radius="sm" w={52}>
+                    <Badge color={scoreColor(r.score ?? 0)} variant="filled" size="lg" radius="sm" w={52}>
                       {r.score}
                     </Badge>
-                    {r.override && (
-                      <Tooltip label={r.override.reason}>
-                        <Text size="xs" c="dimmed">
-                          {t('results.overridden', { score: r.ai_score })}
-                        </Text>
-                      </Tooltip>
+                    {r.original_score !== undefined && (
+                      <Text size="xs" c="dimmed">
+                        {t('results.overridden', { score: r.original_score })}
+                      </Text>
                     )}
                   </Group>
                 </Table.Td>
                 <Table.Td>
-                  {r.meets_must_haves ? (
+                  {r.qualified !== false ? (
                     <Text size="sm" c="green.7">
                       {t('results.allMet')}
                     </Text>
                   ) : (
-                    <Tooltip label={r.unmet_must_haves.join(', ')}>
+                    <Tooltip label={(r.unmet_must_haves ?? []).join(', ')}>
                       <Text size="sm" c="red.7">
-                        {t('results.missing', { count: r.unmet_must_haves.length })}
+                        {t('results.missing', { count: r.unmet_must_haves?.length ?? 0 })}
                       </Text>
                     </Tooltip>
                   )}
                 </Table.Td>
                 <Table.Td>
-                  <DecisionBadge decision={r.decision} />
+                  <DecisionBadge decision={decisionOf(r)} />
                 </Table.Td>
               </Table.Tr>
             ))}

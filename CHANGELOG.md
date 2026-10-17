@@ -15,6 +15,24 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-17 19:58 — The web app adopts Hiring's UC-1/UC-2 contract
+
+- **The web app now uses the Hiring Service's own contract** for proposals, screening, results,
+  overrides and the shortlist, replacing the shapes it had proposed — this closes the 15:46
+  entry's outstanding item, with Hiring's answer rather than the app's.
+- **Batches are listed from the results and from this browser's uploads**, because Hiring has no
+  operation that lists an opening's batches; one would be simpler and is worth adding.
+- **An override carries no reason**, as Hiring's contract has it; the app stopped asking for one.
+  Whether FR-2.8 wants the reason recorded is for Hiring's owner.
+- **The broker ADR will be ADR-011.** The 19:39 entry calls it ADR-010, written before ADR-010
+  went to the gateway's refresh cookie in the 15:46 entry; Resume Processing's README says the
+  same and needs the same correction.
+
+Outstanding: the broker ADR (ADR-011) and the SOC table and runtime view it changes; a batch
+listing in Hiring; UC-3's shortlisted precondition in Hiring.
+
+---
+
 ## 2026-10-17 19:39 — Screening built to the Resume Processing contract
 
 - **UC-2 runs end to end through RabbitMQ**, on the terms of `resume-processing/MESSAGES.md`,

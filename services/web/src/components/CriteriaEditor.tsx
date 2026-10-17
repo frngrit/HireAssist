@@ -46,7 +46,7 @@ export function CriteriaEditor({ value, onChange }: { value: Criterion[]; onChan
               <Table.Td>
                 <NumberInput
                   min={1}
-                  max={10}
+                  max={100}
                   value={c.weight}
                   onChange={(v) => update(i, { weight: typeof v === 'number' ? v : 1 })}
                   aria-label={`${t('criteria.weight')} ${i + 1}`}

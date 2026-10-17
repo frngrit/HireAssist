@@ -22,6 +22,7 @@ beforeEach(() => {
   resetDb()
   setSession(null)
   notifications.clean() // the store is global, so one test's toasts would show in the next
+  localStorage.clear() // the batches a test uploaded are remembered per browser
   window.history.pushState({}, '', '/')
 })
 afterEach(() => {

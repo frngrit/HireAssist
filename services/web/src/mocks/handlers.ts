@@ -1,11 +1,10 @@
 // MSW handlers: the behaviour of the Gateway and the services behind it, as the web app sees
 // them. Sign-in follows the Identity Service; job openings and interview guides follow the Hiring
-// Service's OpenAPI contract, including its error codes and messages. Everything else implements
-// the PROPOSED contracts in src/api/types.ts.
+// Service's OpenAPI contract, including its error codes and messages; proposals and screening
+// follow the same contract.
 
 import { delay, http, HttpResponse, type HttpResponseResolver } from 'msw'
 import type {
-  CandidateDetail,
   Criterion,
   EntryStatus,
   InterviewGuide,
@@ -15,8 +14,10 @@ import type {
   JobOpeningDraft,
   JobOpeningProposal,
   QuestionKind,
-  RankedCandidate,
+  RankedResults,
+  ScreenedCandidate,
   ScreeningBatch,
+  ScreeningResult,
   Session,
 } from '../api/types'
 import { API_BASE } from '../api/client'
@@ -110,61 +111,62 @@ function advancePipeline() {
       if (entryStatus(entry) !== 'screened') continue
       if (db.results.some((r) => r.candidateId === entry.candidateId)) continue
       db.results.push({
+        resumeId: entry.resumeId,
         candidateId: entry.candidateId,
         jobOpeningId: batch.jobOpeningId,
         batchId: batch.id,
         fileName: entry.fileName,
         ...screen(entry.fileName, opening.criteria),
         shortlisted: false,
+        completedAt: new Date(entry.readyAt).toISOString(),
       })
     }
   }
 }
 
 function toBatch(batch: MockBatch): ScreeningBatch {
-  const entries = batch.entries.map((e) => {
-    const status = entryStatus(e)
-    return {
-      resume_id: e.resumeId,
-      file_name: e.fileName,
-      status,
-      ...(status === 'needs_review' ? { reason: e.reviewReason } : {}),
-    }
-  })
+  const entries = batch.entries.map((e) => ({ resume_id: e.resumeId, file_name: e.fileName, status: entryStatus(e) }))
   const counts: Record<EntryStatus, number> = { pending: 0, screened: 0, needs_review: 0, failed: 0 }
   for (const e of entries) counts[e.status]++
   return {
     id: batch.id,
     job_opening_id: batch.jobOpeningId,
     submitted_at: new Date(batch.submittedAt).toISOString(),
-    status: counts.pending === 0 ? 'finished' : 'processing',
-    total: entries.length,
+    complete: counts.pending === 0,
     counts,
     entries,
   }
 }
 
-function toRanked(r: MockResult): RankedCandidate {
-  const opening = findOpening(r.jobOpeningId)!
-  const unmet = opening.criteria
-    .filter((c) => c.classification === 'must-have')
+const unmetMustHaves = (r: MockResult) =>
+  findOpening(r.jobOpeningId)!
+    .criteria.filter((c) => c.classification === 'must-have')
     .filter((c) => !r.assessments.find((a) => a.criterion === c.name)?.met)
     .map((c) => c.name)
-  const meets = unmet.length === 0
+
+function toResult(r: MockResult): ScreeningResult {
+  const unmet = unmetMustHaves(r)
   return {
-    candidate_id: r.candidateId,
-    file_name: r.fileName,
+    resume_id: r.resumeId,
     batch_id: r.batchId,
-    score: r.override?.score ?? r.aiScore,
-    ai_score: r.aiScore,
-    ...(r.override ? { override: r.override } : {}),
-    meets_must_haves: meets,
-    unmet_must_haves: unmet,
-    decision: !meets ? 'not_qualified' : r.shortlisted ? 'shortlisted' : 'undecided',
+    file_name: r.fileName,
+    status: 'screened',
+    candidate_id: r.candidateId,
+    score: r.overrideScore ?? r.aiScore,
+    ...(r.overrideScore !== undefined ? { original_score: r.aiScore, overridden_at: r.overriddenAt } : {}),
+    qualified: unmet.length === 0,
+    ...(unmet.length ? { unmet_must_haves: unmet } : {}),
+    shortlisted: r.shortlisted,
+    ...(r.shortlistedAt ? { shortlisted_at: r.shortlistedAt } : {}),
+    completed_at: r.completedAt,
   }
 }
 
-const findResult = (openingId: string, candidateId: string) =>
+const findByResume = (openingId: string, resumeId: string) =>
+  db.results.find((r) => r.jobOpeningId === openingId && r.resumeId === resumeId)
+
+/** UC-3 is keyed by the candidate, as Resume Processing names them. */
+const findByCandidate = (openingId: string, candidateId: string) =>
   db.results.find((r) => r.jobOpeningId === openingId && r.candidateId === candidateId)
 
 const MUST = /\b(must|required|need|at least)\b|\d\+\s*years|ต้อง|จำเป็น/
@@ -199,7 +201,12 @@ function proposeFrom(description: string): JobOpeningProposal {
     const must = mustHave && !niceToHave
     criteria.push({ name: name.charAt(0).toUpperCase() + name.slice(1), classification: must ? 'must-have' : 'nice-to-have', weight: must ? 5 : 3 })
   }
-  return { proposed_title: titled ? first.charAt(0).toUpperCase() + first.slice(1) : '', criteria, uninterpreted }
+  return {
+    title: titled ? first.charAt(0).toUpperCase() + first.slice(1) : '',
+    criteria,
+    uninterpreted,
+    attribution: { provider: 'mock', model: 'keywords', prompt_version: 'mock-1' },
+  }
 }
 
 const QUESTION_TEMPLATES: Record<QuestionKind, (criterion: string, evidence: string) => string> = {
@@ -297,9 +304,9 @@ export const handlers = [
     return HttpResponse.json({ id: member.id, email: member.email, role: member.role })
   }),
 
-  // UC-1 → Hiring. Registered before /job-openings/:id so "proposals" is not read as an id.
+  // UC-1 → Hiring. Registered before /job-openings/:id so "propose" is not read as an id.
   http.post(
-    `${API_BASE}/job-openings/proposals`,
+    `${API_BASE}/job-openings/propose`,
     guarded(async ({ request }) => {
       const { description } = (await request.json().catch(() => ({}))) as { description?: string }
       if (!description?.trim()) return error(422, 'description is required')
@@ -403,17 +410,19 @@ export const handlers = [
       if (!opening) return error(404, 'job opening not found')
       if (opening.status !== 'open') return error(409, `cannot screen resumes against a ${opening.status} job opening`)
       const form = await request.formData()
-      const files = form.getAll('files').filter((f): f is File => typeof f !== 'string')
-      if (files.length === 0) return error(422, 'at least one resume file is required')
-      const notPdf = files.find((f) => !f.name.toLowerCase().endsWith('.pdf'))
-      if (notPdf) return error(422, `"${notPdf.name}" is not a PDF`)
+      const files = form.getAll('resumes').filter((f): f is File => typeof f !== 'string')
+      // Files that cannot be screened are left out and listed, not a reason to refuse the batch.
+      const isPdf = (f: File) => f.name.toLowerCase().endsWith('.pdf')
+      const rejected = files.filter((f) => !isPdf(f)).map((f) => ({ file_name: f.name, reason: 'not a PDF' }))
+      const accepted = files.filter(isPdf)
+      if (accepted.length === 0) return error(422, 'nothing in the batch can be screened')
       const now = Date.now()
       const [min, max] = config.processingMs
       const batch: MockBatch = {
         id: newId('sb'),
         jobOpeningId: opening.id,
         submittedAt: now,
-        entries: files.map((f) => ({
+        entries: accepted.map((f) => ({
           resumeId: newId('rs'),
           candidateId: newId('cd'),
           fileName: f.name,
@@ -422,79 +431,101 @@ export const handlers = [
         })),
       }
       db.batches.push(batch)
-      return HttpResponse.json(toBatch(batch), { status: 202, headers: { Location: `/job-openings/${opening.id}/batches/${batch.id}` } })
+      return HttpResponse.json(
+        { ...toBatch(batch), ...(rejected.length ? { rejected } : {}) },
+        { status: 202, headers: { Location: `/job-openings/${opening.id}/batches/${batch.id}` } },
+      )
     }),
   ),
 
   http.get(
-    `${API_BASE}/job-openings/:id/batches`,
+    `${API_BASE}/job-openings/:id/batches/:batchId`,
     guarded(({ params }) => {
-      if (!findOpening(params.id as string)) return error(404, 'job opening not found')
       advancePipeline()
-      const batches = db.batches
-        .filter((b) => b.jobOpeningId === params.id)
-        .sort((a, b) => b.submittedAt - a.submittedAt)
-        .map(toBatch)
-      return HttpResponse.json(batches)
+      const batch = db.batches.find((b) => b.jobOpeningId === params.id && b.id === params.batchId)
+      return batch ? HttpResponse.json(toBatch(batch)) : error(404, 'screening batch not found')
     }),
   ),
 
   http.get(
     `${API_BASE}/job-openings/:id/results`,
     guarded(({ params, request }) => {
-      if (!findOpening(params.id as string)) return error(404, 'job opening not found')
+      const opening = findOpening(params.id as string)
+      if (!opening) return error(404, 'job opening not found')
       advancePipeline()
       const url = new URL(request.url)
       const minScore = Number(url.searchParams.get('min_score') ?? 0)
       const criterion = url.searchParams.get('criterion')
+      // Qualified first — a must-have is a gate, not a weight — then by score.
       const ranked = db.results
-        .filter((r) => r.jobOpeningId === params.id)
-        .filter((r) => !criterion || r.assessments.some((a) => a.criterion === criterion && a.met))
-        .map(toRanked)
-        .filter((r) => r.score >= minScore)
-        .sort((a, b) => b.score - a.score)
-      return HttpResponse.json(ranked)
+        .filter((r) => r.jobOpeningId === opening.id)
+        .map(toResult)
+        .filter((r) => r.score! >= minScore)
+        .filter((r) => !criterion || !(r.unmet_must_haves ?? []).includes(criterion))
+        .sort((a, b) => Number(b.qualified) - Number(a.qualified) || b.score! - a.score!)
+      const entries = db.batches.filter((b) => b.jobOpeningId === opening.id).flatMap((b) => b.entries.map((e) => ({ b, e })))
+      const body: RankedResults = {
+        job_opening_id: opening.id,
+        pending: entries.filter(({ e }) => entryStatus(e) === 'pending').length,
+        ranked,
+        needs_review: entries
+          .filter(({ e }) => entryStatus(e) === 'needs_review')
+          .map(({ b, e }) => ({
+            resume_id: e.resumeId,
+            batch_id: b.id,
+            file_name: e.fileName,
+            status: 'needs_review',
+            shortlisted: false,
+            reason: e.reviewReason,
+            completed_at: new Date(e.readyAt).toISOString(),
+          })),
+      }
+      return HttpResponse.json(body)
     }),
   ),
 
   http.get(
-    `${API_BASE}/job-openings/:id/candidates/:candidateId`,
+    `${API_BASE}/job-openings/:id/results/:resumeId`,
     guarded(({ params }) => {
-      const result = findResult(params.id as string, params.candidateId as string)
-      if (!result) return error(404, 'candidate not found')
-      const detail: CandidateDetail = {
-        ...toRanked(result),
-        justification: result.justification,
-        assessments: result.assessments,
-        profile: result.profile,
-        has_interview_guide: db.guides.some((g) => g.candidate_id === result.candidateId && g.job_opening_id === result.jobOpeningId),
+      const result = findByResume(params.id as string, params.resumeId as string)
+      if (!result) return error(404, 'screening result not found')
+      const opening = findOpening(result.jobOpeningId)!
+      const body: ScreenedCandidate = {
+        result: toResult(result),
+        justification: {
+          text: result.justification,
+          evidence: result.assessments.map((a) => ({
+            ...a,
+            classification: opening.criteria.find((c) => c.name === a.criterion)?.classification ?? 'nice-to-have',
+          })),
+        },
       }
-      return HttpResponse.json(detail)
-    }),
-  ),
-
-  http.put(
-    `${API_BASE}/job-openings/:id/candidates/:candidateId/override`,
-    guarded(async ({ params, request }) => {
-      const result = findResult(params.id as string, params.candidateId as string)
-      if (!result) return error(404, 'candidate not found')
-      const { score, reason } = (await request.json().catch(() => ({}))) as { score?: number; reason?: string }
-      if (!Number.isInteger(score) || score! < 0 || score! > 100) return error(422, 'score must be a whole number from 0 to 100')
-      if (!reason?.trim()) return error(422, 'a reason is required for an override')
-      result.override = { score: score!, reason: reason.trim() }
-      return HttpResponse.json(toRanked(result))
+      return HttpResponse.json(body)
     }),
   ),
 
   http.post(
-    `${API_BASE}/job-openings/:id/candidates/:candidateId/shortlist`,
+    `${API_BASE}/job-openings/:id/results/:resumeId/override`,
+    guarded(async ({ params, request }) => {
+      const result = findByResume(params.id as string, params.resumeId as string)
+      if (!result) return error(404, 'screening result not found')
+      const { score } = (await request.json().catch(() => ({}))) as { score?: number }
+      if (!Number.isInteger(score) || score! < 0 || score! > 100) return error(422, 'score must be a whole number from 0 to 100')
+      result.overrideScore = score!
+      result.overriddenAt = new Date().toISOString()
+      return HttpResponse.json(toResult(result))
+    }),
+  ),
+
+  http.post(
+    `${API_BASE}/job-openings/:id/results/:resumeId/shortlist`,
     guarded(({ params }) => {
-      const result = findResult(params.id as string, params.candidateId as string)
-      if (!result) return error(404, 'candidate not found')
-      if (toRanked(result).decision === 'not_qualified')
-        return error(409, 'a candidate who misses a must-have criterion cannot be shortlisted')
+      const result = findByResume(params.id as string, params.resumeId as string)
+      if (!result) return error(404, 'screening result not found')
+      if (!toResult(result).qualified) return error(422, 'a candidate who misses a must-have criterion cannot be shortlisted')
       result.shortlisted = true
-      return HttpResponse.json(toRanked(result))
+      result.shortlistedAt ??= new Date().toISOString()
+      return HttpResponse.json(toResult(result))
     }),
   ),
 
@@ -511,7 +542,7 @@ export const handlers = [
     `${API_BASE}/job-openings/:id/candidates/:candidateId/interview-guide`,
     guarded(async ({ params, request }) => {
       const opening = findOpening(params.id as string)
-      const result = findResult(params.id as string, params.candidateId as string)
+      const result = findByCandidate(params.id as string, params.candidateId as string)
       if (!opening || !result) return error(404, 'candidate not found')
       if (!result.shortlisted) return error(409, 'interview guides are generated for shortlisted candidates')
       if (findGuide(opening.id, result.candidateId)) return error(409, 'this candidate already has an interview guide')
@@ -542,7 +573,7 @@ export const handlers = [
     guarded(async ({ params, request }) => {
       const guide = findGuide(params.id, params.candidateId)
       const opening = findOpening(params.id as string)
-      const result = findResult(params.id as string, params.candidateId as string)
+      const result = findByCandidate(params.id as string, params.candidateId as string)
       if (!guide || !opening || !result) return error(404, 'no interview guide has been generated for this candidate')
       const emphasis = (await readJson<{ emphasis: string }>(request)).emphasis?.trim() ?? ''
       await delay(config.latencyMs ? 1500 : 0)

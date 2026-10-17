@@ -7,7 +7,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import {
   generateInterviewGuide,
-  getCandidate,
+  getRankedResults,
   getInterviewGuide,
   getJobOpening,
   recordInterviewNote,
@@ -36,7 +36,11 @@ export function InterviewGuidePage() {
   const key = ['guide', id, candidateId]
 
   const opening = useQuery({ queryKey: ['opening', id], queryFn: () => getJobOpening(id) })
-  const candidate = useQuery({ queryKey: ['candidate', id, candidateId], queryFn: () => getCandidate(id, candidateId) })
+  // Which resume this is, for the heading. The Hiring Service looks results up by resume, not by
+  // candidate, so it comes from the opening's ranking; a candidate not in it shows by id.
+  const results = useQuery({ queryKey: ['results', id, 0, null], queryFn: () => getRankedResults(id) })
+  const screened = results.data?.ranked.find((r) => r.candidate_id === candidateId)
+  const resumeName = screened?.file_name ?? candidateId
   const guide = useQuery({
     queryKey: key,
     // No guide yet is a normal state, not an error.
@@ -56,15 +60,15 @@ export function InterviewGuidePage() {
     onError: (err) => notifications.show({ color: 'red', message: err.message }),
   })
 
-  if (opening.isPending || candidate.isPending || guide.isPending) return <PageLoader />
-  const failed = opening.error ?? candidate.error ?? guide.error
+  if (opening.isPending || results.isPending || guide.isPending) return <PageLoader />
+  const failed = opening.error ?? results.error ?? guide.error
   if (failed) return <QueryError error={failed} />
 
   return (
     <Stack>
       <Button
         component={Link}
-        to={`/job-openings/${id}?candidate=${candidateId}`}
+        to={screened ? `/job-openings/${id}?resume=${screened.resume_id}` : `/job-openings/${id}`}
         variant="subtle"
         size="xs"
         leftSection={<IconArrowLeft size={14} />}
@@ -76,7 +80,7 @@ export function InterviewGuidePage() {
       <div>
         <Title order={2}>{t('guide.title')}</Title>
         <Text c="dimmed" size="sm">
-          {t('guide.for', { resume: candidate.data!.file_name, opening: opening.data!.title })}
+          {t('guide.for', { resume: resumeName, opening: opening.data!.title })}
         </Text>
       </div>
 

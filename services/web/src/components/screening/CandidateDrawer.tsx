@@ -1,30 +1,30 @@
-import { Alert, Badge, Button, Divider, Drawer, Group, NumberInput, Paper, Stack, Text, Textarea, ThemeIcon } from '@mantine/core'
+import { Alert, Badge, Button, Divider, Drawer, Group, NumberInput, Paper, Stack, Text, ThemeIcon } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconCheck, IconLock, IconMessageQuestion, IconStar, IconX } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getCandidate, overrideScore, shortlistCandidate } from '../../api/endpoints'
-import type { CandidateDetail, JobOpening } from '../../api/types'
+import { getScreeningResult, overrideScore, shortlistCandidate } from '../../api/endpoints'
+import { decisionOf, type JobOpening, type ScreenedCandidate, type ScreeningResult } from '../../api/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { DecisionBadge, PageLoader, QueryError } from '../common'
 import { scoreColor } from '../rules'
 
 /**
- * One candidate against one opening: the justification first, because a score a recruiter
+ * One screened resume against one opening: the justification first, because a score a recruiter
  * cannot explain is the failure this product exists to prevent (NFR-15). Then override,
  * shortlist, and the way into UC-3.
  */
-export function CandidateDrawer({ opening, candidateId, onClose }: { opening: JobOpening; candidateId: string | null; onClose: () => void }) {
+export function CandidateDrawer({ opening, resumeId, onClose }: { opening: JobOpening; resumeId: string | null; onClose: () => void }) {
   const { t } = useI18n()
   const candidate = useQuery({
-    queryKey: ['candidate', opening.id, candidateId],
-    queryFn: () => getCandidate(opening.id, candidateId!),
-    enabled: candidateId !== null,
+    queryKey: ['candidate', opening.id, resumeId],
+    queryFn: () => getScreeningResult(opening.id, resumeId!),
+    enabled: resumeId !== null,
   })
 
   return (
-    <Drawer opened={candidateId !== null} onClose={onClose} position="right" size="xl" title={t('candidate.title')}>
+    <Drawer opened={resumeId !== null} onClose={onClose} position="right" size="xl" title={t('candidate.title')}>
       {candidate.isPending ? (
         <PageLoader />
       ) : candidate.isError ? (
@@ -36,36 +36,37 @@ export function CandidateDrawer({ opening, candidateId, onClose }: { opening: Jo
   )
 }
 
-function CandidateBody({ opening, c }: { opening: JobOpening; c: CandidateDetail }) {
+function CandidateBody({ opening, c }: { opening: JobOpening; c: ScreenedCandidate }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
+  const r = c.result
+  const decision = decisionOf(r)
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['candidate', opening.id, c.candidate_id] })
+    queryClient.invalidateQueries({ queryKey: ['candidate', opening.id, r.resume_id] })
     queryClient.invalidateQueries({ queryKey: ['results', opening.id] })
   }
   const shortlist = useMutation({
-    mutationFn: () => shortlistCandidate(opening.id, c.candidate_id),
+    mutationFn: () => shortlistCandidate(opening.id, r.resume_id),
     onSuccess: refresh,
     onError: (err) => notifications.show({ color: 'red', message: err.message }),
   })
-  const guidePath = `/job-openings/${opening.id}/candidates/${c.candidate_id}/interview-guide`
 
   return (
     <Stack>
       <Group justify="space-between" align="flex-start">
         <div>
           <Text fw={600} size="lg">
-            {c.file_name}
+            {r.file_name}
           </Text>
-          <DecisionBadge decision={c.decision} />
+          <DecisionBadge decision={decision} />
         </div>
         <Stack gap={2} align="flex-end">
-          <Badge color={scoreColor(c.score)} size="xl" radius="sm">
-            {c.score}
+          <Badge color={scoreColor(r.score ?? 0)} size="xl" radius="sm">
+            {r.score}
           </Badge>
-          {c.override && (
+          {r.original_score !== undefined && (
             <Text size="xs" c="dimmed">
-              {t('candidate.aiScore')}: {c.ai_score}
+              {t('candidate.aiScore')}: {r.original_score}
             </Text>
           )}
         </Stack>
@@ -83,22 +84,22 @@ function CandidateBody({ opening, c }: { opening: JobOpening; c: CandidateDetail
             </Text>
           </Group>
         </Group>
-        <Text size="sm">{c.justification}</Text>
-        {c.override && (
-          <Text size="sm" mt="xs" c="indigo.7">
-            {t('candidate.yourScore')}: {c.override.score} — {c.override.reason}
+        {c.justification ? (
+          <Text size="sm">{c.justification.text}</Text>
+        ) : (
+          <Text size="sm" c="dimmed">
+            {t('candidate.justificationUnavailable')}
           </Text>
         )}
       </Paper>
 
-      <div>
-        <Text fw={600} size="sm" mb="xs">
-          {t('candidate.assessments')}
-        </Text>
-        <Stack gap="xs">
-          {c.assessments.map((a) => {
-            const criterion = opening.criteria.find((x) => x.name === a.criterion)
-            return (
+      {c.justification && c.justification.evidence.length > 0 && (
+        <div>
+          <Text fw={600} size="sm" mb="xs">
+            {t('candidate.assessments')}
+          </Text>
+          <Stack gap="xs">
+            {c.justification.evidence.map((a) => (
               <Group key={a.criterion} gap="sm" align="flex-start" wrap="nowrap">
                 <ThemeIcon size="sm" radius="xl" color={a.met ? 'green' : 'red'} variant="light" mt={2}>
                   {a.met ? <IconCheck size={12} /> : <IconX size={12} />}
@@ -108,7 +109,7 @@ function CandidateBody({ opening, c }: { opening: JobOpening; c: CandidateDetail
                     <Text size="sm" fw={500}>
                       {a.criterion}
                     </Text>
-                    {criterion?.classification === 'must-have' && (
+                    {a.classification === 'must-have' && (
                       <Badge size="xs" color="red" variant="outline">
                         {t('classification.must-have')}
                       </Badge>
@@ -122,51 +123,46 @@ function CandidateBody({ opening, c }: { opening: JobOpening; c: CandidateDetail
                   </Text>
                 </div>
               </Group>
-            )
-          })}
-        </Stack>
-      </div>
+            ))}
+          </Stack>
+        </div>
+      )}
 
       <Divider />
 
       <Group>
-        {c.decision === 'undecided' && (
+        {decision === 'undecided' && (
           <Button leftSection={<IconStar size={16} />} color="green" loading={shortlist.isPending} onClick={() => shortlist.mutate()}>
             {t('candidate.shortlist')}
           </Button>
         )}
-        {c.decision === 'shortlisted' && (
+        {decision === 'shortlisted' && r.candidate_id && (
           <Button
             component={Link}
-            to={guidePath}
+            to={`/job-openings/${opening.id}/candidates/${r.candidate_id}/interview-guide`}
             leftSection={<IconMessageQuestion size={16} />}
-            variant={c.has_interview_guide ? 'light' : 'filled'}
           >
-            {c.has_interview_guide ? t('candidate.openGuide') : t('candidate.generateGuide')}
+            {t('candidate.guide')}
           </Button>
         )}
       </Group>
-      {c.decision === 'undecided' && (
+      {decision === 'undecided' && (
         <Text size="xs" c="dimmed">
           {t('candidate.guideNeedsShortlist')}
         </Text>
       )}
 
-      <OverrideForm opening={opening} c={c} onDone={refresh} />
-
-      <Divider />
-      <Profile c={c} />
+      <OverrideForm opening={opening} r={r} onDone={refresh} />
     </Stack>
   )
 }
 
-/** FR-2.8: the Recruiter's score replaces the AI's in the ranking; the AI's is kept. */
-function OverrideForm({ opening, c, onDone }: { opening: JobOpening; c: CandidateDetail; onDone: () => void }) {
+/** FR-2.8: the Recruiter's score replaces screening's in the ranking; screening's is kept. */
+function OverrideForm({ opening, r, onDone }: { opening: JobOpening; r: ScreeningResult; onDone: () => void }) {
   const { t } = useI18n()
-  const [score, setScore] = useState<number | ''>(c.override?.score ?? '')
-  const [reason, setReason] = useState(c.override?.reason ?? '')
+  const [score, setScore] = useState<number | ''>(r.original_score !== undefined ? (r.score ?? '') : '')
   const save = useMutation({
-    mutationFn: () => overrideScore(opening.id, c.candidate_id, Number(score), reason),
+    mutationFn: () => overrideScore(opening.id, r.resume_id, Number(score)),
     onSuccess: onDone,
   })
   return (
@@ -187,8 +183,7 @@ function OverrideForm({ opening, c, onDone }: { opening: JobOpening; c: Candidat
           onChange={(v) => setScore(typeof v === 'number' ? v : '')}
           w={160}
         />
-        <Textarea label={t('candidate.overrideReason')} autosize minRows={1} value={reason} onChange={(e) => setReason(e.currentTarget.value)} style={{ flex: 1 }} />
-        <Button variant="light" disabled={score === '' || !reason.trim()} loading={save.isPending} onClick={() => save.mutate()}>
+        <Button variant="light" disabled={score === ''} loading={save.isPending} onClick={() => save.mutate()}>
           {t('common.save')}
         </Button>
       </Group>
@@ -198,48 +193,5 @@ function OverrideForm({ opening, c, onDone }: { opening: JobOpening; c: Candidat
         </Alert>
       )}
     </Paper>
-  )
-}
-
-function Profile({ c }: { c: CandidateDetail }) {
-  const { t } = useI18n()
-  return (
-    <Stack gap="sm">
-      <Text fw={600} size="sm">
-        {t('candidate.profile')}
-      </Text>
-      <div>
-        <Text size="xs" c="dimmed" mb={4}>
-          {t('candidate.skills')}
-        </Text>
-        <Group gap={4}>
-          {c.profile.skills.map((s) => (
-            <Badge key={s} variant="default" size="sm">
-              {s}
-            </Badge>
-          ))}
-        </Group>
-      </div>
-      <div>
-        <Text size="xs" c="dimmed" mb={4}>
-          {t('candidate.experience')}
-        </Text>
-        {c.profile.work_history.map((w, i) => (
-          <Text key={i} size="sm">
-            <b>{w.title}</b>, {w.organisation} ({w.start}–{w.end || t('candidate.present')}) — {w.summary}
-          </Text>
-        ))}
-      </div>
-      <div>
-        <Text size="xs" c="dimmed" mb={4}>
-          {t('candidate.education')}
-        </Text>
-        {c.profile.education.map((e, i) => (
-          <Text key={i} size="sm">
-            {e.qualification}, {e.institution} ({e.completed})
-          </Text>
-        ))}
-      </div>
-    </Stack>
   )
 }

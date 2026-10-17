@@ -31,7 +31,7 @@ export function NewJobOpeningPage() {
   const propose = useMutation({
     mutationFn: () => proposeJobOpening(description),
     onSuccess: (proposal) => {
-      setTitle(proposal.proposed_title)
+      setTitle(proposal.title)
       setCriteria(proposal.criteria)
       setUninterpreted(proposal.uninterpreted)
       setProposalFailed(false)

@@ -31,7 +31,7 @@ describe('creating a job opening (UC-1)', () => {
   })
 
   it('offers manual entry when the AI proposal is unavailable (FR-1.5)', async () => {
-    server.use(http.post('/api/job-openings/proposals', () => HttpResponse.json({ error: 'unavailable' }, { status: 503 })))
+    server.use(http.post('/api/job-openings/propose', () => HttpResponse.json({ error: 'unavailable' }, { status: 503 })))
     const { user } = await renderSignedIn('/job-openings/new')
     await user.type(screen.getByLabelText(/Role description/), 'Anything')
     await user.click(screen.getByRole('button', { name: 'Propose criteria' }))
