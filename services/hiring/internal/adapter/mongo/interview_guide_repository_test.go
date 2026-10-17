@@ -102,6 +102,26 @@ func TestSaveReplacesTheCandidatesGuide(t *testing.T) {
 	}
 }
 
+func TestANoteSurvivesTheRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	g := guide(t, "cand-note")
+	if err := g.RecordNote("q2", "Only side projects; honest about it.", time.Now().UTC()); err != nil {
+		t.Fatalf("RecordNote: %v", err)
+	}
+	if err := repo.Save(ctx, g); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	found, err := repo.FindByCandidate(ctx, "jo-1", "cand-note")
+	if err != nil {
+		t.Fatalf("FindByCandidate: %v", err)
+	}
+	if found.Questions[1].ID != "q2" || found.Questions[1].Note != "Only side projects; honest about it." {
+		t.Errorf("questions = %+v", found.Questions)
+	}
+}
+
 func TestFindByCandidate_NoneYet(t *testing.T) {
 	_, err := newRepo(t).FindByCandidate(context.Background(), "jo-1", "cand-nobody")
 

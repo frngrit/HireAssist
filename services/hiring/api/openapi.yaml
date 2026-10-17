@@ -261,12 +261,13 @@ paths:
       description: |
         `reviseGuide()` in its editing form. FR-3.4: adding, rewording, reordering and removing
         are one request, because the whole set is sent. No model is called, so the guide no
-        longer carries a model attribution — the questions are partly the Recruiter's.
+        longer carries a model attribution — the questions are partly the Recruiter's. A note
+        already written against a question that is sent back unchanged stays with it.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/QuestionSet' }
+            schema: { $ref: '#/components/schemas/QuestionDraftSet' }
       responses:
         '200':
           description: The revised guide.
@@ -276,6 +277,40 @@ paths:
         '400': { $ref: '#/components/responses/MalformedBody' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /job-openings/{id}/candidates/{candidateId}/interview-guide/questions/{questionId}/note:
+    parameters:
+      - $ref: '#/components/parameters/JobOpeningId'
+      - $ref: '#/components/parameters/CandidateId'
+      - name: questionId
+        in: path
+        required: true
+        description: The question's id within the guide, as a read of the guide gives it.
+        schema: { type: string }
+        example: q2
+    put:
+      operationId: recordInterviewNote
+      tags: [Interview guides]
+      summary: Record the interviewer's note against one question
+      description: |
+        FR-3.5. After the interview, what was said is kept with the question it answers, so the
+        evidence stays attached to the criterion that question was meant to test. Sending it
+        again replaces it; the guide's revision does not move, because the questions have not
+        changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InterviewNote' }
+      responses:
+        '200':
+          description: The guide, with the note on its question.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InterviewGuide' }
+        '400': { $ref: '#/components/responses/MalformedBody' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
 
   /healthz:
@@ -387,8 +422,15 @@ components:
     Question:
       type: object
       additionalProperties: false
-      required: [text, criterion, kind]
+      required: [id, text, criterion, kind]
       properties:
+        id:
+          type: string
+          description: Identifies the question within its guide, for recording a note against it.
+          example: q2
+        note:
+          type: string
+          description: What the interviewer wrote against this question afterwards (FR-3.5).
         text:
           type: string
           minLength: 1
@@ -409,6 +451,34 @@ components:
       type: array
       minItems: 1
       items: { $ref: '#/components/schemas/Question' }
+
+    QuestionDraft:
+      type: object
+      additionalProperties: false
+      required: [text, criterion, kind]
+      description: |
+        A question as the Recruiter sends it. Ids are the guide's to assign, and a note is
+        recorded against a question rather than sent with one.
+      properties:
+        text: { type: string, minLength: 1 }
+        criterion: { type: string, minLength: 1 }
+        evidence: { type: string }
+        kind: { $ref: '#/components/schemas/QuestionKind' }
+
+    QuestionDraftSet:
+      type: array
+      minItems: 1
+      items: { $ref: '#/components/schemas/QuestionDraft' }
+
+    InterviewNote:
+      type: object
+      additionalProperties: false
+      required: [note]
+      properties:
+        note:
+          type: string
+          description: Empty clears the note.
+          example: Answered well on partitioning; vague on rebalancing.
 
     Emphasis:
       type: object
@@ -472,7 +542,8 @@ components:
     NotFound:
       description: |
         Nothing here has this id: no such job opening, no guide generated for this candidate
-        yet, or no such candidate profile in the Resume Processing Service.
+        yet, no such question in the guide, or no such candidate profile in the Resume
+        Processing Service.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

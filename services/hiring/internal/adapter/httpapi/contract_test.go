@@ -60,6 +60,8 @@ func TestHandlerMatchesOpenAPIContract(t *testing.T) {
 		{"regenerate guide", "POST", "/job-openings/jo-1/candidates/cand-001/interview-guide/regenerate", `{"emphasis": "more behavioural"}`, false, 200},
 		{"revise questions", "PUT", "/job-openings/jo-1/candidates/cand-001/interview-guide/questions", `[{"text": "Walk me through the outage.", "criterion": "Kubernetes", "kind": "resume-claim"}]`, false, 200},
 		{"revise questions, none left", "PUT", "/job-openings/jo-1/candidates/cand-001/interview-guide/questions", `[]`, true, 422},
+		{"record a note", "PUT", "/job-openings/jo-1/candidates/cand-001/interview-guide/questions/q1/note", `{"note": "Answered well on partitioning; vague on rebalancing."}`, false, 200},
+		{"record a note, no such question", "PUT", "/job-openings/jo-1/candidates/cand-001/interview-guide/questions/q9/note", `{"note": "…"}`, false, 404},
 		{"close, unknown outcome", "POST", "/job-openings/jo-1/close", `{"outcome": "abandoned"}`, true, 422},
 		{"close", "POST", "/job-openings/jo-1/close", `{"outcome": "filled"}`, false, 200},
 		{"revise criteria, closed", "PUT", "/job-openings/jo-1/criteria", `[{"name": "Go", "classification": "must-have", "weight": 3}]`, false, 409},

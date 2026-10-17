@@ -15,6 +15,31 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-17 15:40 — Token checks stay at the gateway; interview notes complete UC-3
+
+- **The services behind the gateway will not verify tokens.** The gateway checks every request
+  and the services trust that they are reachable only on the deployment's private network. This
+  is a deliberate reversal of two accepted positions: ADR-009 asks every service acting on the
+  role to verify what it receives, and ADR-001 says enforcement cannot live at the gateway
+  alone. The argument for it is that one deployment serves one company (ADR-006) and nothing
+  but the gateway is published; the cost is that anything that reaches a service directly is
+  already past every access check, and that the duplicated-enforcement risk ADR-005 names is
+  traded for a network assumption. **It needs an ADR of its own** — the stack is append-only,
+  so that record would state what it overrides. Until it exists, the gateway's README, the
+  Identity Service's README, the runtime view, the SOC table and the ADR index all say the
+  decision was taken and is unrecorded.
+- ADR-009 therefore stays *Proposed* on a narrower question: everything but the services' half
+  is implemented, and that half is now withdrawn rather than outstanding.
+- **FR-3.5 is built, so UC-3 is complete.** A note is recorded against the question it answers,
+  which is what keeps the evidence attached to the criterion that question was meant to test.
+  Three rules worth stating: a note does not move the guide's revision, because the questions
+  have not changed; it survives an edit that leaves its question as it was; and regenerating
+  drops the notes, because the new questions are not the ones that were asked.
+- Outstanding: an ADR for gateway-only verification; an ADR for Hiring's document store; an
+  owner for the gateway (ADR-005 rule 5); UC-3's precondition, since shortlisting is not built.
+
+---
+
 ## 2026-10-17 13:17 — Signing in, and interview guides in their own document store
 
 - **UC-0 works end to end**: the Identity Service issues the tokens ADR-009 describes and the

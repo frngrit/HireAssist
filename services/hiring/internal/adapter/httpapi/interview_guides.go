@@ -17,15 +17,34 @@ type InterviewGuides interface {
 	GetInterviewGuide(ctx context.Context, jobOpeningID, candidateID string) (*domain.InterviewGuide, error)
 	RegenerateInterviewGuide(ctx context.Context, jobOpeningID, candidateID, emphasis string) (*domain.InterviewGuide, error)
 	ReviseGuideQuestions(ctx context.Context, jobOpeningID, candidateID string, questions []domain.Question) (*domain.InterviewGuide, error)
+	RecordInterviewNote(ctx context.Context, jobOpeningID, candidateID, questionID, note string) (*domain.InterviewGuide, error)
 }
 
 // ---- wire format ----
 
+// questionJSON is a question as the service returns it: with the id a note is recorded
+// against, and the note itself once there is one.
 type questionJSON struct {
+	ID        string `json:"id"`
 	Text      string `json:"text"`
 	Criterion string `json:"criterion"`
 	Evidence  string `json:"evidence,omitempty"`
 	Kind      string `json:"kind"`
+	Note      string `json:"note,omitempty"`
+}
+
+// questionDraftJSON is a question as the Recruiter sends it. Ids are the guide's to assign,
+// and a note is recorded against a question rather than sent with one.
+type questionDraftJSON struct {
+	Text      string `json:"text"`
+	Criterion string `json:"criterion"`
+	Evidence  string `json:"evidence,omitempty"`
+	Kind      string `json:"kind"`
+}
+
+// noteRequest is what is written against one question (FR-3.5).
+type noteRequest struct {
+	Note string `json:"note"`
 }
 
 type attributionJSON struct {
@@ -52,7 +71,7 @@ type emphasisRequest struct {
 	Emphasis string `json:"emphasis"`
 }
 
-func toQuestions(in []questionJSON) []domain.Question {
+func toQuestions(in []questionDraftJSON) []domain.Question {
 	out := make([]domain.Question, len(in))
 	for i, q := range in {
 		out[i] = domain.Question{
@@ -68,7 +87,7 @@ func toQuestions(in []questionJSON) []domain.Question {
 func toGuideResponse(g domain.InterviewGuide) guideResponse {
 	questions := make([]questionJSON, len(g.Questions))
 	for i, q := range g.Questions {
-		questions[i] = questionJSON{Text: q.Text, Criterion: q.Criterion, Evidence: q.Evidence, Kind: string(q.Kind)}
+		questions[i] = questionJSON{ID: q.ID, Text: q.Text, Criterion: q.Criterion, Evidence: q.Evidence, Kind: string(q.Kind), Note: q.Note}
 	}
 	var attribution *attributionJSON
 	if g.Attribution != (domain.ModelAttribution{}) {
@@ -128,11 +147,22 @@ func (h handler) regenerateGuide(w http.ResponseWriter, r *http.Request) {
 // reviseGuideQuestions is `reviseGuide()` with the Recruiter's own questions: the whole set is
 // sent, so adding, rewording, reordering and removing are all the same request (FR-3.4).
 func (h handler) reviseGuideQuestions(w http.ResponseWriter, r *http.Request) {
-	var req []questionJSON
+	var req []questionDraftJSON
 	if !decodeBody(w, r, &req) {
 		return
 	}
 	respondGuide(w)(h.guides.ReviseGuideQuestions(r.Context(), r.PathValue("id"), r.PathValue("candidateId"), toQuestions(req)))
+}
+
+// recordInterviewNote is `recordInterviewNote()`: what the interviewer wrote against one
+// question, so the evidence stays attached to the criterion it was meant to test (FR-3.5).
+func (h handler) recordInterviewNote(w http.ResponseWriter, r *http.Request) {
+	var req noteRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	respondGuide(w)(h.guides.RecordInterviewNote(r.Context(),
+		r.PathValue("id"), r.PathValue("candidateId"), r.PathValue("questionId"), req.Note))
 }
 
 // readEmphasis reads the optional body of a generate or regenerate request. No body at all is

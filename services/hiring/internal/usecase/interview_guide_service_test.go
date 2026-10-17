@@ -200,6 +200,40 @@ func TestReviseGuideQuestions_CallsNoModel(t *testing.T) {
 	}
 }
 
+func TestRecordInterviewNote(t *testing.T) {
+	svc, _, _, guides := fixture(t)
+	if _, err := svc.GenerateInterviewGuide(context.Background(), "jo-1", "cand-001", ""); err != nil {
+		t.Fatalf("first generation: %v", err)
+	}
+
+	guide, err := svc.RecordInterviewNote(context.Background(), "jo-1", "cand-001", "q1", "Knew the partitioning cold.")
+	if err != nil {
+		t.Fatalf("RecordInterviewNote: %v", err)
+	}
+	if guide.Questions[0].Note != "Knew the partitioning cold." {
+		t.Errorf("questions = %+v", guide.Questions)
+	}
+
+	// Kept, so the evidence is still there when the decision is made (FR-3.5).
+	stored, err := guides.FindByCandidate(context.Background(), "jo-1", "cand-001")
+	if err != nil {
+		t.Fatalf("FindByCandidate: %v", err)
+	}
+	if stored.Questions[0].Note == "" {
+		t.Error("the note was not retained")
+	}
+}
+
+func TestRecordInterviewNote_BeforeAGuideExists(t *testing.T) {
+	svc, _, _, _ := fixture(t)
+
+	_, err := svc.RecordInterviewNote(context.Background(), "jo-1", "cand-001", "q1", "…")
+
+	if !errors.Is(err, usecase.ErrGuideNotFound) {
+		t.Errorf("err = %v, want ErrGuideNotFound", err)
+	}
+}
+
 func TestGetInterviewGuide_BeforeOneExists(t *testing.T) {
 	svc, _, _, _ := fixture(t)
 

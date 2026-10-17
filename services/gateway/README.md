@@ -39,7 +39,14 @@ a gateway that exposes the next service somebody adds.
 ADR-009: the Identity Service signs, everyone else verifies. The gateway holds only public
 keys. It checks the ES256 signature and the expiry **itself** and never calls the Identity
 Service to check a token — not per request, not at startup. The token is then forwarded
-unchanged, because a service that acts on the caller's role verifies the same signature.
+unchanged, so a service behind it can read who the caller is.
+
+**The gateway is the only place a token is checked.** ADR-009 asks the services behind it to
+verify what they receive as well; the team has decided against that, on the assumption that the
+services are reachable only on the deployment's private network. That decision reverses part of
+two accepted records and still needs an ADR of its own. What follows from it is operational:
+nothing but the gateway may be published, because anything that can reach the Hiring or Identity
+Service directly is already past every access check in the system.
 
 Only ES256 is accepted. A token that names its own algorithm is how a verifier gets talked into
 accepting `none`, and there is a test for exactly that.

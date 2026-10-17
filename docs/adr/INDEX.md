@@ -52,7 +52,7 @@ place that tracks which parts of an earlier record no longer hold.
 | **ADR-006** | All of it. | — |
 | **ADR-007** | All of it. | — |
 | **ADR-008** | All of it. | — |
-| **ADR-009** | All of it. Still *Proposed* — it asks the gateway and the services behind it to verify tokens themselves. The gateway now does, so only the services' half is outstanding. | — |
+| **ADR-009** | The token mechanism, the lifetimes, the rotation and reuse rules, and verification at the gateway, which is implemented. Still *Proposed*. | Its requirement that every service acting on the role verify the token itself is **not being implemented**: verification stays at the gateway, and the services are reachable only on the deployment's private network. That reverses ADR-001's position that enforcement cannot live at the gateway alone, so it needs a record of its own, which does not exist yet. |
 
 ## Candidate decisions
 

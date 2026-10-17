@@ -4,9 +4,12 @@ Owns the **members** of one HireAssist installation and their roles: UC-0 (sign 
 (manage members and roles). Go with the standard library's `net/http`, PostgreSQL through `pgx`.
 
 **Status:** member CRUD and signing in work. Signing in issues the tokens ADR-009 describes, and
-the gateway verifies them. What is still missing is the other half of that record: **these
-endpoints are themselves unprotected** — the service does not yet verify the token on a request
-to `/members`, so run it behind the gateway, or only on your own machine.
+the gateway verifies them.
+
+**This service checks no token itself, by decision.** Verification lives at the gateway alone,
+on the assumption that the services sit on a private network — so `/members` is open to anything
+that can reach port 8081. Publish the gateway and nothing else. The decision reverses part of
+ADR-009 and of ADR-001 and still needs an ADR of its own.
 
 | | |
 |---|---|
@@ -135,7 +138,7 @@ in to get one. It clears the temporary flag and ends every session that member h
 | A password is at least 15 characters and at most 72 bytes; no forced capitals, digits or symbols | NIST's current guidance for a password that is the only factor; bcrypt reads only 72 bytes |
 | A password an Admin sets is temporary | the member must replace it before signing in (FR-0.5) |
 | Setting, changing or removing ends that member's sessions | ADR-009 bounds a removed member's access to the lifetime of the access token they hold; their refresh tokens are deleted |
-| Member management re-reads the role from the database | a demoted Admin loses that power immediately rather than when their token expires (ADR-009). Not yet enforced here — these endpoints do not read the token at all |
+| Member management re-reads the role from the database | a demoted Admin loses that power immediately rather than when their token expires (ADR-009). Nothing enforces it here: the role is checked at the gateway, and this service reads no token |
 | Removing a member keeps the row, marked removed | past actions must still name the person (FR-6.2) |
 | The last active admin cannot be removed or demoted | nothing in the product could create an admin again (FR-6.3); changes that could do it run one at a time, so two admins demoting each other cannot both succeed |
 | Only `role` can be changed with PATCH; email is fixed | FR-6.1 |

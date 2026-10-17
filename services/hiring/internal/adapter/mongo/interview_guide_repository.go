@@ -70,10 +70,13 @@ type guideDoc struct {
 }
 
 type questionDoc struct {
+	ID        string `bson:"id"`
 	Text      string `bson:"text"`
 	Criterion string `bson:"criterion"`
 	Evidence  string `bson:"evidence,omitempty"`
 	Kind      string `bson:"kind"`
+	// Note is what the interviewer wrote against the question afterwards (FR-3.5).
+	Note string `bson:"note,omitempty"`
 }
 
 // attributionDoc records which model wrote the questions (ADR-004). A guide the Recruiter
@@ -112,7 +115,7 @@ func (r *InterviewGuideRepository) FindByCandidate(ctx context.Context, jobOpeni
 func toDoc(g *domain.InterviewGuide) guideDoc {
 	questions := make([]questionDoc, len(g.Questions))
 	for i, q := range g.Questions {
-		questions[i] = questionDoc{Text: q.Text, Criterion: q.Criterion, Evidence: q.Evidence, Kind: string(q.Kind)}
+		questions[i] = questionDoc{ID: q.ID, Text: q.Text, Criterion: q.Criterion, Evidence: q.Evidence, Kind: string(q.Kind), Note: q.Note}
 	}
 	return guideDoc{
 		ID:           g.ID,
@@ -136,10 +139,12 @@ func toDomain(doc guideDoc) *domain.InterviewGuide {
 	questions := make([]domain.Question, len(doc.Questions))
 	for i, q := range doc.Questions {
 		questions[i] = domain.Question{
+			ID:        q.ID,
 			Text:      q.Text,
 			Criterion: q.Criterion,
 			Evidence:  q.Evidence,
 			Kind:      domain.QuestionKind(q.Kind),
+			Note:      q.Note,
 		}
 	}
 	return &domain.InterviewGuide{
