@@ -31,5 +31,20 @@ services:
       postgres:
         condition: service_healthy
 
+  gateway:
+    build: ./services/gateway
+    environment:
+      PORT: "8000"
+      HIRING_URL: http://hiring:8080
+      # The Identity Service is not in this compose file yet; it runs from its own.
+      IDENTITY_URL: http://host.docker.internal:8081
+      # The public half of the development key pair (`make keys` in services/gateway).
+      # The gateway only ever holds public keys (ADR-009).
+      JWT_PUBLIC_KEYS: "${JWT_PUBLIC_KEYS:-}"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - hiring
+
 volumes:
   postgres-data:
