@@ -19,6 +19,10 @@ every request (**ADR-009**, now implemented at the gateway). It rejects any requ
 caller's role and calls `Compliance & Insights Service.recordAuthorisationRejected()` for the
 access audit log. It owns no data.
 
+It is also the **only** place a token is checked: the services behind it do not verify what they
+receive, because the deployment keeps them on a private network. That decision is not recorded
+in an ADR yet, and it is what makes publishing anything but the gateway unsafe.
+
 **External systems**, each behind an adapter: Object / Blob Storage, LLM Provider (reached only by
 AI Service), Email Provider. PDF text extraction is an in-process library in Resume Processing,
 not an external service — a scanned image with no text layer is a permanent failure by design

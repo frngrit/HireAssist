@@ -29,10 +29,14 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
   any request exceeding the caller's role.
 - **Called by** — the recruiter-facing web application. The only public entry point for user
   traffic; the System Scheduler is an internal trigger and does not pass through it.
-- **Calls** — no one to check a token: verification is local ([ADR-009](adr/ADR-009-jwt-with-refresh-tokens.md)),
-  and the token is forwarded unchanged. `Compliance.recordAuthorisationRejected()` on every
-  rejection; routes onward to Identity, Hiring, Compliance and Resume Processing. Never the AI
-  Service.
+- **Calls** — no one to check a token: verification is local
+  ([ADR-009](adr/ADR-009-jwt-with-refresh-tokens.md)), and the token is forwarded unchanged.
+  `Compliance.recordAuthorisationRejected()` on every rejection; routes onward to Identity,
+  Hiring, Compliance and Resume Processing. Never the AI Service.
+- **It is the only place a token is checked.** The services behind it do not verify what they
+  receive, on the assumption that they are reachable only on the deployment's private network.
+  That decision reverses ADR-001's position that enforcement cannot live at the gateway alone,
+  and has no record of its own yet.
 
 ### Identity Service
 
