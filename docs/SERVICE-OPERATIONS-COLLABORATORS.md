@@ -20,8 +20,8 @@ caller's role and calls `Compliance & Insights Service.recordAuthorisationReject
 access audit log. It owns no data.
 
 It is also the **only** place a token is checked: the services behind it do not verify what they
-receive, because the deployment keeps them on a private network. That decision is not recorded
-in an ADR yet, and it is what makes publishing anything but the gateway unsafe.
+receive, because the deployment keeps them on a private network (**ADR-010**). That is what makes
+publishing anything but the gateway unsafe.
 
 **External systems**, each behind an adapter: Object / Blob Storage, LLM Provider (reached only by
 AI Service), Email Provider. PDF text extraction is an in-process library in Resume Processing,
@@ -85,7 +85,5 @@ Recorded here so they are not settled by implementation:
 - **Pipeline events are pushed, not published.** With no broker, Hiring calls
   `recordPipelineEvent()` directly, which makes Compliance a synchronous dependency of Hiring's
   write path and gives a lost call no retry story. Needs an ADR before it is built.
-- **Interview guides are owned by Hiring but are AI-derived documents.** ADR-003 places such
-  documents in MongoDB, which is otherwise Resume Processing's store, so Hiring needs a document
-  store of its own. Implementation has taken that path — Hiring now has its own MongoDB
-  database for guides — and the decision is still unrecorded.
+- ~~**Interview guides are owned by Hiring but are AI-derived documents.**~~ Answered by
+  ADR-011: Hiring has a MongoDB database of its own, and guides live in it.
