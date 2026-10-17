@@ -49,10 +49,11 @@ func NewHandler(svc JobOpenings, guides InterviewGuides) http.Handler {
 
 	// UC-3, under the opening the guide is for.
 	const guidePath = "/job-openings/{id}/candidates/{candidateId}/interview-guide"
-	mux.HandleFunc("POST "+guidePath, h.generateGuide)                    // generateInterviewGuide()
-	mux.HandleFunc("GET "+guidePath, h.getGuide)                          // getInterviewGuide()
-	mux.HandleFunc("POST "+guidePath+"/regenerate", h.regenerateGuide)    // reviseGuide(), asking again
-	mux.HandleFunc("PUT "+guidePath+"/questions", h.reviseGuideQuestions) // reviseGuide(), the Recruiter's own
+	mux.HandleFunc("POST "+guidePath, h.generateGuide)                                     // generateInterviewGuide()
+	mux.HandleFunc("GET "+guidePath, h.getGuide)                                           // getInterviewGuide()
+	mux.HandleFunc("POST "+guidePath+"/regenerate", h.regenerateGuide)                     // reviseGuide(), asking again
+	mux.HandleFunc("PUT "+guidePath+"/questions", h.reviseGuideQuestions)                  // reviseGuide(), the Recruiter's own
+	mux.HandleFunc("PUT "+guidePath+"/questions/{questionId}/note", h.recordInterviewNote) // recordInterviewNote()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -208,7 +209,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, usecase.ErrNotFound),
 		errors.Is(err, usecase.ErrGuideNotFound),
-		errors.Is(err, usecase.ErrCandidateNotFound):
+		errors.Is(err, usecase.ErrCandidateNotFound),
+		errors.Is(err, domain.ErrQuestionNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 	case errors.Is(err, domain.ErrInvalidJobOpening), errors.Is(err, domain.ErrInvalidInterviewGuide):
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})

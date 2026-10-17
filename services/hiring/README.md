@@ -99,6 +99,7 @@ not serve all fail it.
 | `getInterviewGuide()` | `GET /job-openings/{id}/candidates/{candidateId}/interview-guide` | 200 |
 | `reviseGuide()`, asking again | `POST …/interview-guide/regenerate` `{"emphasis": "more system design"}` | 200 |
 | `reviseGuide()`, the Recruiter's own | `PUT …/interview-guide/questions` (the whole set) | 200 |
+| `recordInterviewNote()` | `PUT …/interview-guide/questions/{questionId}/note` `{"note": "…"}` | 200 |
 
 ```json
 {
@@ -147,6 +148,11 @@ Three things worth knowing:
   again is `regenerate`, so a stray click cannot throw away what the Recruiter has edited.
 - **An edited guide carries no model attribution.** The questions are partly the Recruiter's,
   and naming a model as their author would be false.
+- **Notes belong to the question they answer.** After the interview, `recordInterviewNote()`
+  keeps what was said with the question it answers (FR-3.5), so the evidence stays attached to
+  the criterion that question was meant to test. A note does not move the revision — the
+  questions have not changed — and it survives an edit that leaves its question as it was.
+  Regenerating drops the notes, because the new questions are not the ones that were asked.
 - **The profile is read, never copied.** The skills, the work history, the education and the
   leftover resume text are taken; the candidate's name and email address are not. A guide is
   built from what someone can be asked about, and a copy here would be a second place their
@@ -173,7 +179,6 @@ docker run --rm -v "$PWD/../..":/src -w /src golang:1.25-alpine sh -c '
 
 - **`proposeJobOpening()`** — the AI proposal step. It becomes a `CriteriaDeriver` port beside
   the AI Service client that UC-3 already uses (ADR-007).
-- **`recordInterviewNote()`** (FR-3.5) — notes against each question, after the interview.
 - **The UC-3 precondition.** The use case says a guide is for a *shortlisted* candidate;
   shortlisting is not built, so nothing checks it.
 - **`recordPipelineEvent()`** — reporting openings to the dashboard. The docs say this push needs

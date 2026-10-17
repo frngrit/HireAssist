@@ -127,6 +127,23 @@ func (s *InterviewGuideService) RegenerateInterviewGuide(ctx context.Context, jo
 	return guide, nil
 }
 
+// RecordInterviewNote is `recordInterviewNote()` from the SOC table: what the interviewer
+// wrote against one question, kept with the question so the evidence stays attached to the
+// criterion it was meant to test (FR-3.5).
+func (s *InterviewGuideService) RecordInterviewNote(ctx context.Context, jobOpeningID, candidateID, questionID, note string) (*domain.InterviewGuide, error) {
+	guide, err := s.guides.FindByCandidate(ctx, jobOpeningID, candidateID)
+	if err != nil {
+		return nil, err
+	}
+	if err := guide.RecordNote(questionID, note, s.clock.Now()); err != nil {
+		return nil, err
+	}
+	if err := s.guides.Save(ctx, guide); err != nil {
+		return nil, fmt.Errorf("saving interview guide: %w", err)
+	}
+	return guide, nil
+}
+
 // ReviseGuideQuestions stores the Recruiter's own set of questions — added, reworded, reordered
 // or removed (FR-3.4). No model is called: these questions are theirs.
 func (s *InterviewGuideService) ReviseGuideQuestions(ctx context.Context, jobOpeningID, candidateID string, questions []domain.Question) (*domain.InterviewGuide, error) {

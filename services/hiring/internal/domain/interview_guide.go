@@ -7,8 +7,12 @@ import (
 	"time"
 )
 
-// ErrInvalidInterviewGuide means an interview guide would break a business rule.
-var ErrInvalidInterviewGuide = errors.New("invalid interview guide")
+var (
+	// ErrInvalidInterviewGuide means an interview guide would break a business rule.
+	ErrInvalidInterviewGuide = errors.New("invalid interview guide")
+	// ErrQuestionNotFound means the guide has no question with that id.
+	ErrQuestionNotFound = errors.New("question not found")
+)
 
 // QuestionKind is what a question is for (FR-3.2). A guide is expected to cover all three, but
 // which ones a particular candidate needs is the model's judgement, not a rule here.
@@ -26,6 +30,10 @@ const (
 // Question is one interview question, tagged with what it tests and where it came from, so the
 // interviewer knows why it is being asked (FR-3.3).
 type Question struct {
+	// ID identifies the question within its guide, for recording a note against it (FR-3.5).
+	// The guide assigns it; it is q1, q2, … in the order the questions are asked, and it is
+	// reassigned whenever the set is replaced.
+	ID   string
 	Text string
 	// Criterion is the name of the criterion this question tests, as the job opening spells it.
 	Criterion string
@@ -33,6 +41,9 @@ type Question struct {
 	// must-have the resume never mentions has none, which is itself the point of asking.
 	Evidence string
 	Kind     QuestionKind
+	// Note is what the interviewer wrote against this question afterwards (FR-3.5), which is
+	// what keeps the evidence attached to the criterion it was meant to test.
+	Note string
 }
 
 // ModelAttribution identifies which model produced a guide, so one shown to a Recruiter months
@@ -83,7 +94,7 @@ func NewInterviewGuide(id, jobOpeningID, candidateID string, questions []Questio
 		ID:           id,
 		JobOpeningID: jobOpeningID,
 		CandidateID:  candidateID,
-		Questions:    append([]Question(nil), questions...),
+		Questions:    numbered(questions),
 		Emphasis:     strings.TrimSpace(emphasis),
 		Source:       Generated,
 		Attribution:  attribution,
@@ -99,7 +110,9 @@ func (g *InterviewGuide) Regenerate(questions []Question, emphasis string, attri
 	if err := validateQuestions(questions); err != nil {
 		return err
 	}
-	g.Questions = append([]Question(nil), questions...)
+	// The notes go with the questions they were written against: these are different
+	// questions, so a note from the old set would be attached to something nobody asked.
+	g.Questions = numbered(questions)
 	g.Emphasis = strings.TrimSpace(emphasis)
 	g.Source = Generated
 	g.Attribution = attribution
@@ -115,12 +128,54 @@ func (g *InterviewGuide) ReplaceQuestions(questions []Question, at time.Time) er
 	if err := validateQuestions(questions); err != nil {
 		return err
 	}
-	g.Questions = append([]Question(nil), questions...)
+	g.Questions = carryNotes(g.Questions, numbered(questions))
 	g.Source = Edited
 	g.Attribution = ModelAttribution{}
 	g.Revision++
 	g.UpdatedAt = at
 	return nil
+}
+
+// RecordNote stores what the interviewer wrote against one question (FR-3.5). It does not move
+// the revision: the questions have not changed, only what happened when they were asked.
+func (g *InterviewGuide) RecordNote(questionID, note string, at time.Time) error {
+	for i := range g.Questions {
+		if g.Questions[i].ID == questionID {
+			g.Questions[i].Note = note
+			g.UpdatedAt = at
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: this guide has no question %q", ErrQuestionNotFound, questionID)
+}
+
+// numbered copies the questions and gives each its position-based id.
+func numbered(questions []Question) []Question {
+	out := make([]Question, len(questions))
+	for i, q := range questions {
+		q.ID = fmt.Sprintf("q%d", i+1)
+		out[i] = q
+	}
+	return out
+}
+
+// carryNotes keeps a note written against a question the Recruiter left as it was. Editing a
+// guide happens before the interview and noting it afterwards, so this rarely matters — but
+// reordering or adding one question should not silently discard what was written against the
+// others.
+func carryNotes(before, after []Question) []Question {
+	notes := make(map[string]string, len(before))
+	for _, q := range before {
+		if q.Note != "" {
+			notes[q.Text] = q.Note
+		}
+	}
+	for i := range after {
+		if after[i].Note == "" {
+			after[i].Note = notes[after[i].Text]
+		}
+	}
+	return after
 }
 
 // validateQuestions enforces what every question must carry.

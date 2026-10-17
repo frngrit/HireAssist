@@ -24,10 +24,12 @@ type guideJSON struct {
 		Provider string `json:"provider"`
 	} `json:"attribution"`
 	Questions []struct {
+		ID        string `json:"id"`
 		Text      string `json:"text"`
 		Criterion string `json:"criterion"`
 		Evidence  string `json:"evidence"`
 		Kind      string `json:"kind"`
+		Note      string `json:"note"`
 	} `json:"questions"`
 }
 
@@ -142,6 +144,39 @@ func TestReviseGuideQuestions_EmptySetIs422(t *testing.T) {
 	if e := decode[map[string]string](t, rec)["error"]; !strings.Contains(e, "no questions") {
 		t.Errorf("error = %q, want it to say why", e)
 	}
+}
+
+func TestRecordInterviewNote(t *testing.T) {
+	h := withOpening(t)
+	do(t, h, http.MethodPost, guidePath, "")
+
+	rec := do(t, h, http.MethodPut, guidePath+"/questions/q1/note",
+		`{"note": "Answered well on partitioning; vague on rebalancing."}`)
+
+	wantStatus(t, rec, http.StatusOK)
+	got := decode[guideJSON](t, rec)
+	if got.Questions[0].Note != "Answered well on partitioning; vague on rebalancing." {
+		t.Errorf("questions = %+v", got.Questions)
+	}
+	// The questions have not changed, so the revision stays where it was.
+	if got.Revision != 1 {
+		t.Errorf("revision = %d, want 1", got.Revision)
+	}
+}
+
+func TestRecordInterviewNote_UnknownQuestionIs404(t *testing.T) {
+	h := withOpening(t)
+	do(t, h, http.MethodPost, guidePath, "")
+
+	rec := do(t, h, http.MethodPut, guidePath+"/questions/q9/note", `{"note": "…"}`)
+
+	wantStatus(t, rec, http.StatusNotFound)
+}
+
+func TestRecordInterviewNote_BeforeAGuideExistsIs404(t *testing.T) {
+	rec := do(t, withOpening(t), http.MethodPut, guidePath+"/questions/q1/note", `{"note": "…"}`)
+
+	wantStatus(t, rec, http.StatusNotFound)
 }
 
 // A service UC-3 reads being down is 502, not 500 and not an empty guide: it is somebody
