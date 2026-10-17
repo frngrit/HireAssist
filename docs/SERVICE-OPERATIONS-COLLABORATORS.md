@@ -83,4 +83,5 @@ Recorded here so they are not settled by implementation:
   write path and gives a lost call no retry story. Needs an ADR before it is built.
 - **Interview guides are owned by Hiring but are AI-derived documents.** ADR-003 places such
   documents in MongoDB, which is otherwise Resume Processing's store, so Hiring needs a document
-  store of its own.
+  store of its own. Implementation has taken that path — Hiring now has its own MongoDB
+  database for guides — and the decision is still unrecorded.

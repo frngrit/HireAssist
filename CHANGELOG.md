@@ -15,6 +15,36 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-17 13:17 — Signing in, and interview guides in their own document store
+
+- **UC-0 works end to end**: the Identity Service issues the tokens ADR-009 describes and the
+  gateway verifies them. Two decisions the record left to implementation: the role travels in
+  the token as **Admin** and **Recruiter**, as the requirements name them, while the database
+  keeps its lower-case spelling — one mapping, in one function; and **changing a password is a
+  public route**, because FR-0.5 says a member must replace a temporary password before signing
+  in, so they cannot hold a token when they do it. The Identity Service asks for the current one.
+- **Removal and a password change now end that member's sessions**, which is what bounds a
+  removed member's access to the lifetime of the token they already hold (ADR-009).
+- **ADR-009's second half is still open.** The Identity Service's own `/members` endpoints do
+  not read the token yet, so role enforcement still lives only at the gateway. The record stays
+  *Proposed* until the services behind it verify what they are sent.
+- **UC-3 is built, and interview guides live in a MongoDB database of Hiring's own.** That was
+  an open decision in the Service–Operations–Collaborators table — ADR-003 puts AI-derived
+  documents in MongoDB, which was otherwise Resume Processing's store — and implementation has
+  now answered it. **It wants an ADR.** Both documents say so rather than reading as settled.
+- **A guide a Recruiter has edited carries no model attribution**, and a candidate has one guide
+  per opening: regenerating revises it, and a second generation is refused rather than quietly
+  replacing edits. The guide endpoints sit under `/job-openings/{id}/candidates/{candidateId}/`,
+  which keeps every hiring path behind the gateway's single prefix.
+- **Hiring reads a candidate's profile without their name or email address.** The Resume
+  Processing Service returns both; UC-3 takes the skills and the resume text only. Fewer copies
+  of a person's contact details, fewer places to erase them from.
+- Outstanding: an ADR for Hiring's document store; the services' half of ADR-009; an owner for
+  the gateway (ADR-005 rule 5); `recordInterviewNote()` (FR-3.5); UC-3's precondition — the use
+  case says *shortlisted*, and shortlisting is not built, so nothing checks it.
+
+---
+
 ## 2026-10-17 12:28 — The gateway verifies tokens itself; ADR-009 is half agreed
 
 - **The API Gateway is written, in Go.** ADR-005 leaves the language to the service's owner and

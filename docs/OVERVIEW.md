@@ -46,9 +46,9 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 ### Hiring Service
 
 - **Owns** — PostgreSQL: job openings, criteria, screening batches and per-entry status, scores,
-  overrides, shortlist decisions. MongoDB: interview guides. *(That document store is an open
-  decision — [ADR-003](adr/ADR-003-polyglot-persistence.md) places AI-derived documents in
-  MongoDB, which is otherwise Resume Processing's store.)*
+  overrides, shortlist decisions. MongoDB: interview guides, in a database of its own.
+  *(ADR-003 places AI-derived documents in MongoDB, which is otherwise Resume Processing's
+  store; Hiring having its own is how that was implemented, and is still unrecorded.)*
 - **Does** — holds the entire recruiter-facing hiring record: openings and their criteria, batch
   acceptance and per-resume handover, the ranked list, overrides, shortlisting, interview guides.
 - **Called by** — the Gateway; Resume Processing, calling `reportScreeningResult()` back;

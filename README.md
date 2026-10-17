@@ -38,8 +38,8 @@ Term project for **Software Architecture**, Chulalongkorn University.
 | [docs/diagrams/](docs/diagrams/) | Diagrams as code — the use case diagram (PlantUML source + rendered SVG) and the architecture diagram (hand-laid SVG). |
 | [docs/SERVICE-OPERATIONS-COLLABORATORS.md](docs/SERVICE-OPERATIONS-COLLABORATORS.md) | Each service's operations and who it collaborates with. |
 | [services/ai-service/](services/ai-service/) | **Code.** The AI Service — Python, uv, gRPC. The first implemented service. |
-| [services/identity/](services/identity/) | **Code.** The Identity Service — Go, net/http, PostgreSQL, REST. Member CRUD; signing in is not built yet. |
-| [services/hiring/](services/hiring/) | **Code.** The Hiring Service — Go, PostgreSQL, REST with an OpenAPI contract. Job openings (UC-1); proposing criteria with AI is not built yet. |
+| [services/identity/](services/identity/) | **Code.** The Identity Service — Go, net/http, PostgreSQL, REST. Member CRUD and signing in (UC-0): ES256 access tokens and rotating refresh tokens (ADR-009). |
+| [services/hiring/](services/hiring/) | **Code.** The Hiring Service — Go, PostgreSQL and MongoDB, REST with an OpenAPI contract. Job openings (UC-1) and interview guides (UC-3); proposing criteria with AI is not built yet. |
 | [services/gateway/](services/gateway/) | **Code.** The API Gateway — Go. Routing, local token verification (ADR-009), the role gate and rate limiting. |
 | [proto/](proto/) | Shared gRPC contracts. Callers generate clients from these. |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | Runtime view — what each service owns, who calls whom, and the call sequence behind each use case. |
@@ -82,7 +82,7 @@ index and the decisions not yet taken in [`docs/adr/INDEX.md`](docs/adr/INDEX.md
 **Documentation, plus four services in progress:** the AI Service, the Identity Service, the
 Hiring Service and the API Gateway, each listed in the table above with its own README.
 `docker compose up --build` at the root runs the gateway and the Hiring Service with its
-PostgreSQL; the Identity Service still has its own compose file.
+PostgreSQL and MongoDB; the Identity Service still has its own compose file.
 
 The repository is a monorepo. Services live at `services/<name>/` and shared gRPC contracts at
 `proto/`. That layout was settled by starting implementation and still needs an ADR. Each
@@ -95,7 +95,7 @@ consistency with the two services it fronts.
 hire-assist/
 ├── README.md
 ├── .gitignore
-├── docker-compose.yml       # local stack: gateway + Hiring Service + PostgreSQL
+├── docker-compose.yml       # local stack: gateway + Hiring Service + PostgreSQL + MongoDB
 ├── deploy/                  # container support files (database init)
 ├── proto/                   # shared gRPC contracts
 ├── services/
