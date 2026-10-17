@@ -3,9 +3,10 @@
 Owns the **members** of one HireAssist installation and their roles: UC-0 (sign in) and UC-6
 (manage members and roles). Go with the standard library's `net/http`, PostgreSQL through `pgx`.
 
-**Status:** member CRUD works. Signing in, the JWT access token and refresh tokens (the session
-ADR, still proposed) are not built yet, so **every endpoint is open**. Run it only on your own
-machine.
+**Status:** member CRUD and signing in work. Signing in issues the tokens ADR-009 describes, and
+the gateway verifies them. What is still missing is the other half of that record: **these
+endpoints are themselves unprotected** — the service does not yet verify the token on a request
+to `/members`, so run it behind the gateway, or only on your own machine.
 
 | | |
 |---|---|
@@ -18,9 +19,14 @@ machine.
 Needs Docker Desktop running and Go 1.27 or newer. `jq` is needed only for `make demo`.
 
 ```sh
-make db-up      # start PostgreSQL; the first start creates the table and 2 demo members
+make db-up      # start PostgreSQL; the first start creates the tables and 2 demo members
+make keys       # the development signing key pair, and the line to export for the gateway
 make run        # start the service — leave this terminal open
 ```
+
+`make run` makes the key pair if it is not there and passes the private half in. A database
+created before sessions existed has no `sessions` table: `make db-schema` adds it, or
+`docker compose down -v && make db-up` starts over.
 
 In a second terminal:
 
@@ -33,10 +39,22 @@ make demo       # every call in order with curl, Enter between steps
 `make` alone lists every command. `make db-down` stops the database and keeps the data;
 `docker compose down -v` wipes it.
 
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `8081` | |
+| `DATABASE_URL` | — | no default: a connection string carries a password |
+| `JWT_PRIVATE_KEY` | — | the ES256 signing key, in PEM. Required; `make run` passes the development one |
+| `JWT_KEY_ID` | — | the `kid` put in each token, so a verifier holding two keys knows which signed it. `make run` uses `dev-1` |
+| `ACCESS_TOKEN_TTL` | `15m` | how long an access token is good for |
+| `SESSION_LIFETIME` | `8h` | the cap on a session, however often it is refreshed |
+
 ## Endpoints
 
 | Operation | Method and path | Success | Errors |
 |---|---|---|---|
+| `authenticateMember()` | `POST /auth/sign-in` | 200, a token pair | 401 wrong email or password · 403 the temporary password must be replaced |
+| refresh | `POST /auth/refresh` | 200, the next token pair | 401 unknown, used, revoked or expired |
+| `changePassword()` | `POST /auth/change-password` | 200, the member | 400 · 401 wrong current password |
 | `listMembers()` | `GET /members` | 200, active members only | |
 | `getMember()` | `GET /members/{id}` | 200, removed members too | 400 id not a UUID · 404 |
 | `createMember()` | `POST /members` | 201 and `Location` | 400 · 409 email already active |
@@ -64,13 +82,60 @@ problem at once.
 `POST /members` takes `email`, `password` and `role`. `PATCH /members/{id}` takes `role` only.
 `PUT /members/{id}/password` takes `password`.
 
+## Signing in (UC-0, ADR-009)
+
+```sh
+curl -s localhost:8081/auth/sign-in -H 'Content-Type: application/json' \
+  -d '{"email":"nok@acme.example","password":"nok-admin-demo-password"}'
+```
+
+```json
+{
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImRldi0xIiwidHlwIjoiSldUIn0…",
+  "token_type": "Bearer",
+  "expires_in": 900,
+  "refresh_token": "o3mQ…",
+  "session_expires_at": "2026-10-17T20:14:03Z",
+  "member": { "id": "00000000-0000-4000-8000-000000000001", "role": "admin", … }
+}
+```
+
+**The access token** is an ES256 JWT carrying `sub` (the member id), `role` (`Admin` or
+`Recruiter`, as the requirements name them — the database spells them lower-case, and the token
+is where the two meet), `iat` and `exp`. It lasts fifteen minutes. Nobody calls this service to
+check one: the gateway and any service acting on the role hold the public key and verify it
+themselves.
+
+**The refresh token** is 256 random bits with no meaning of their own. Only its SHA-256 is
+stored, so a copy of the table yields nothing that can be presented. `POST /auth/refresh`
+exchanges it for a new pair and retires the one presented — a retired token presented again
+means a copy exists, so the whole session is revoked. The session ends eight hours after
+sign-in however often it is refreshed.
+
+The refresh token comes back in the body rather than a cookie: where it is kept is a decision
+for the web application and the gateway (ADR-009), and setting a cookie here would make it for
+them.
+
+**A temporary password cannot open a session** (FR-0.5). Sign-in answers 403 and the member
+replaces it first:
+
+```sh
+curl -s localhost:8081/auth/change-password -H 'Content-Type: application/json' \
+  -d '{"email":"ploy@acme.example","current_password":"…","new_password":"…"}'
+```
+
+That endpoint takes credentials rather than a token, because a member in this state cannot sign
+in to get one. It clears the temporary flag and ends every session that member has.
+
 ## Rules
 
 | Rule | Why |
 |---|---|
 | An email is trimmed and lower-cased, and belongs to at most one active member | `Ploy@Acme.example` and `ploy@acme.example` are the same person |
 | A password is at least 15 characters and at most 72 bytes; no forced capitals, digits or symbols | NIST's current guidance for a password that is the only factor; bcrypt reads only 72 bytes |
-| A password an Admin sets is temporary | the member must replace it before signing in (FR-0.5), once sign-in exists |
+| A password an Admin sets is temporary | the member must replace it before signing in (FR-0.5) |
+| Setting, changing or removing ends that member's sessions | ADR-009 bounds a removed member's access to the lifetime of the access token they hold; their refresh tokens are deleted |
+| Member management re-reads the role from the database | a demoted Admin loses that power immediately rather than when their token expires (ADR-009). Not yet enforced here — these endpoints do not read the token at all |
 | Removing a member keeps the row, marked removed | past actions must still name the person (FR-6.2) |
 | The last active admin cannot be removed or demoted | nothing in the product could create an admin again (FR-6.3); changes that could do it run one at a time, so two admins demoting each other cannot both succeed |
 | Only `role` can be changed with PATCH; email is fixed | FR-6.1 |
@@ -113,10 +178,14 @@ Each Postman request carries tests, so the Test Results tab turns green when the
 |---|---|
 | `main.go` | Configuration, the database connection, the routes, and a graceful shutdown |
 | `members.go` | The six member handlers, the readiness probe, and the error-to-status mapping |
+| `token.go` | The access token and the refresh token: what they hold, and how they are minted |
+| `auth.go` | Signing in, refreshing, and replacing a temporary password |
+| `sessions.go` | The sessions and refresh tokens half of the store, including reuse detection |
+| `token_test.go` | What a token must contain for another service to accept it |
 | `store.go` | The `Member` type and one SQL function per operation |
 | `validate.go` | The rules for emails, passwords, roles and ids, and password hashing |
 | `http.go` | JSON in and out, error bodies, and the request log |
-| `db/01-schema.sql` | The `members` table; runs on the first database start |
+| `db/01-schema.sql` | The `members`, `sessions` and `refresh_tokens` tables; runs on the first database start |
 | `db/02-seed.sql` | The two demo members; also what `make db-reset` runs |
 | `docker-compose.yml` | The PostgreSQL container |
 | `Makefile` | The commands above |
@@ -126,6 +195,10 @@ Each Postman request carries tests, so the Test Results tab turns green when the
 ## If something does not start
 
 - `DATABASE_URL is not set` — start the service with `make run`, which passes it.
+- `JWT_PRIVATE_KEY is not set` — `make keys`, or use `make run`, which does it. A service that
+  cannot sign cannot authenticate anyone, so it refuses to start rather than fail the first
+  sign-in.
+- `relation "sessions" does not exist` — the database predates sessions; `make db-schema`.
 - `cannot reach PostgreSQL` — Docker Desktop is not running, or `make db-up` was not run.
 - `address already in use` on 8081 — another copy is running; `PORT=8082 make run` moves it,
   and the `base` variable in Postman must move with it.

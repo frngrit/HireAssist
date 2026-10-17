@@ -125,8 +125,8 @@ func (s *Store) ChangeRole(ctx context.Context, id, role string) (Member, error)
 	return m, err
 }
 
-// SetPassword gives a member a new temporary password (FR-6.4). Ending the member's sessions is
-// added together with sessions themselves.
+// SetPassword gives a member a new temporary password (FR-6.4) and ends every session they
+// have: whoever is signed in as them got there with the password that was just replaced.
 func (s *Store) SetPassword(ctx context.Context, id, passwordHash string) (Member, error) {
 	var m Member
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
@@ -140,13 +140,41 @@ func (s *Store) SetPassword(ctx context.Context, id, passwordHash string) (Membe
 			WHERE id = $1
 			RETURNING `+memberColumns,
 			id, passwordHash))
-		return err
+		if err != nil {
+			return err
+		}
+		return revokeMemberSessions(ctx, tx, id, "password reset by an admin")
 	})
 	return m, err
 }
 
-// Remove deactivates a member: they can no longer sign in, but the row stays so their past
-// actions still name them (FR-6.2). The last active admin cannot be removed (FR-6.3).
+// ReplaceOwnPassword is the member replacing their own password (FR-0.5): unlike SetPassword it
+// clears the temporary flag, because the password is now one only the member knows. Their
+// sessions end as well, since a password is usually changed because the old one may be known.
+func (s *Store) ReplaceOwnPassword(ctx context.Context, id, passwordHash string) (Member, error) {
+	var m Member
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if _, err := lockActiveMember(ctx, tx, id); err != nil {
+			return err
+		}
+		var err error
+		m, err = scanMember(tx.QueryRow(ctx, `
+			UPDATE members
+			SET password_hash = $2, temporary_password = false, updated_at = now()
+			WHERE id = $1
+			RETURNING `+memberColumns,
+			id, passwordHash))
+		if err != nil {
+			return err
+		}
+		return revokeMemberSessions(ctx, tx, id, "password changed by the member")
+	})
+	return m, err
+}
+
+// Remove deactivates a member: they can no longer sign in, their sessions end, but the row
+// stays so their past actions still name them (FR-6.2). The last active admin cannot be
+// removed (FR-6.3).
 func (s *Store) Remove(ctx context.Context, id string) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		current, err := lockActiveMember(ctx, tx, id)
@@ -158,8 +186,13 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 				return err
 			}
 		}
-		_, err = tx.Exec(ctx, `UPDATE members SET removed_at = now(), updated_at = now() WHERE id = $1`, id)
-		return err
+		if _, err := tx.Exec(ctx,
+			`UPDATE members SET removed_at = now(), updated_at = now() WHERE id = $1`, id); err != nil {
+			return err
+		}
+		// ADR-009: removing a member deletes their refresh tokens, which is what bounds their
+		// remaining access to the lifetime of the access token they are holding.
+		return revokeMemberSessions(ctx, tx, id, "member removed")
 	})
 }
 
