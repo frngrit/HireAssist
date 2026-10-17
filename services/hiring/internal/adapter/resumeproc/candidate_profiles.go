@@ -6,6 +6,7 @@
 package resumeproc
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -44,9 +45,29 @@ func New(baseURL string, timeout time.Duration) *CandidateProfiles {
 // candidate can be asked about, and the fewer places a person's contact details travel, the
 // fewer places they must be erased from (ADR-004, PDPA).
 type profileJSON struct {
-	ID         string   `json:"id"`
-	Skills     []string `json:"skills"`
-	ResumeText string   `json:"resume_text"`
+	ID          string               `json:"id"`
+	Skills      []string             `json:"skills"`
+	WorkHistory []workExperienceJSON `json:"work_history"`
+	Education   []educationJSON      `json:"education"`
+	// AdditionalText is the resume text that did not fit the structured fields.
+	AdditionalText string `json:"additional_text"`
+	// ResumeText is the whole extracted text. A profile the pipeline produced has the
+	// structured fields and additional_text; one created by hand has only this.
+	ResumeText string `json:"resume_text"`
+}
+
+type workExperienceJSON struct {
+	Title        string `json:"title"`
+	Organisation string `json:"organisation"`
+	Start        string `json:"start"`
+	End          string `json:"end"`
+	Summary      string `json:"summary"`
+}
+
+type educationJSON struct {
+	Qualification string `json:"qualification"`
+	Institution   string `json:"institution"`
+	Completed     string `json:"completed"`
 }
 
 // GetCandidateProfile is `getCandidateProfile()` from the SOC table.
@@ -79,8 +100,39 @@ func (c *CandidateProfiles) GetCandidateProfile(ctx context.Context, candidateID
 		return domain.CandidateProfile{}, errors.New("the candidate profile carries no id")
 	}
 	return domain.CandidateProfile{
-		CandidateID:    body.ID,
-		Skills:         body.Skills,
-		AdditionalText: body.ResumeText,
+		CandidateID: body.ID,
+		Skills:      body.Skills,
+		WorkHistory: toWorkHistory(body.WorkHistory),
+		Education:   toEducation(body.Education),
+		// Prefer the leftover text: alongside the structured fields, sending the whole resume
+		// again would say everything twice. A profile created by hand has no structured
+		// fields and no leftover, so its resume text is all there is.
+		AdditionalText: cmp.Or(body.AdditionalText, body.ResumeText),
 	}, nil
+}
+
+func toWorkHistory(in []workExperienceJSON) []domain.WorkExperience {
+	out := make([]domain.WorkExperience, len(in))
+	for i, w := range in {
+		out[i] = domain.WorkExperience{
+			Title:        w.Title,
+			Organisation: w.Organisation,
+			Start:        w.Start,
+			End:          w.End,
+			Summary:      w.Summary,
+		}
+	}
+	return out
+}
+
+func toEducation(in []educationJSON) []domain.Qualification {
+	out := make([]domain.Qualification, len(in))
+	for i, e := range in {
+		out[i] = domain.Qualification{
+			Qualification: e.Qualification,
+			Institution:   e.Institution,
+			Completed:     e.Completed,
+		}
+	}
+	return out
 }

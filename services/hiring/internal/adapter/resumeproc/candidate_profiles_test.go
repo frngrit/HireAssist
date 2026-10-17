@@ -12,15 +12,33 @@ import (
 	"github.com/frngrit/HireAssist/services/hiring/internal/usecase"
 )
 
-// The Resume Processing Service's answer, as its OpenAPI document describes it.
+// What the Resume Processing Service returns for a profile its pipeline extracted, as its
+// OpenAPI document describes it. Synthetic, as every example in this repository is.
 const profileBody = `{
   "id": "cand-001",
   "job_opening_id": "jo-1",
+  "full_name": null,
+  "email": null,
+  "skills": ["Go", "Kafka"],
+  "work_history": [
+    {"title": "Backend Developer", "organisation": "Wongnai", "start": "2022", "end": "", "summary": "Order pipeline on Kafka"}
+  ],
+  "education": [
+    {"qualification": "BSc Computer Science", "institution": "Chulalongkorn University", "completed": "2021"}
+  ],
+  "additional_text": "Open-source contributor",
+  "resume_text": "4 years as a backend developer in Bangkok; Kafka on the Wongnai project.",
+  "created_at": "2026-10-01T08:00:00Z"
+}`
+
+// What it returns for a profile somebody created by hand: no structured fields, no leftover
+// text, only the resume text.
+const handMadeProfileBody = `{
+  "id": "cand-001",
   "full_name": "Somchai Jaidee",
   "email": "somchai@example.com",
-  "skills": ["Go", "Kafka"],
-  "resume_text": "4 years as a backend developer in Bangkok",
-  "created_at": "2026-10-01T08:00:00Z"
+  "skills": ["Go"],
+  "resume_text": "4 years as a backend developer in Bangkok"
 }`
 
 func serving(t *testing.T, status int, body string) *resumeproc.CandidateProfiles {
@@ -46,8 +64,31 @@ func TestGetCandidateProfile(t *testing.T) {
 	if profile.CandidateID != "cand-001" || len(profile.Skills) != 2 {
 		t.Errorf("profile = %+v", profile)
 	}
+	// The structured fields are what make a question specific: the AI Service is asked about
+	// this position at this organisation, not about a wall of resume text.
+	if len(profile.WorkHistory) != 1 || profile.WorkHistory[0].Organisation != "Wongnai" ||
+		profile.WorkHistory[0].End != "" {
+		t.Errorf("work history = %+v", profile.WorkHistory)
+	}
+	if len(profile.Education) != 1 || profile.Education[0].Completed != "2021" {
+		t.Errorf("education = %+v", profile.Education)
+	}
+	// Alongside the structured fields, the leftover text — not the whole resume again.
+	if profile.AdditionalText != "Open-source contributor" {
+		t.Errorf("additional text = %q", profile.AdditionalText)
+	}
+}
+
+// A profile created by hand has neither structured fields nor leftover text, so its resume
+// text is all there is to ask about.
+func TestGetCandidateProfile_FallsBackToTheResumeText(t *testing.T) {
+	profile, err := serving(t, http.StatusOK, handMadeProfileBody).GetCandidateProfile(context.Background(), "cand-001")
+	if err != nil {
+		t.Fatalf("GetCandidateProfile: %v", err)
+	}
+
 	if profile.AdditionalText != "4 years as a backend developer in Bangkok" {
-		t.Errorf("resume text = %q", profile.AdditionalText)
+		t.Errorf("additional text = %q", profile.AdditionalText)
 	}
 }
 
@@ -55,7 +96,7 @@ func TestGetCandidateProfile(t *testing.T) {
 // guide is built from what a candidate can be asked about, and a copy of someone's contact
 // details here would be a second place to erase them from.
 func TestGetCandidateProfile_DoesNotCarryWhoTheCandidateIs(t *testing.T) {
-	profile, err := serving(t, http.StatusOK, profileBody).GetCandidateProfile(context.Background(), "cand-001")
+	profile, err := serving(t, http.StatusOK, handMadeProfileBody).GetCandidateProfile(context.Background(), "cand-001")
 	if err != nil {
 		t.Fatalf("GetCandidateProfile: %v", err)
 	}

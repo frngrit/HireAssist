@@ -72,8 +72,12 @@ func TestGenerateInterviewQuestions(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	questions, attribution, err := client.GenerateInterviewQuestions(ctx,
-		domain.CandidateProfile{CandidateID: "cand-001", Skills: []string{"Go"}}, criteria, "more system design")
+	questions, attribution, err := client.GenerateInterviewQuestions(ctx, domain.CandidateProfile{
+		CandidateID: "cand-001",
+		Skills:      []string{"Go"},
+		WorkHistory: []domain.WorkExperience{{Title: "Backend Developer", Organisation: "Wongnai", Start: "2022", Summary: "Order pipeline on Kafka"}},
+		Education:   []domain.Qualification{{Qualification: "BSc Computer Science", Institution: "Chulalongkorn University", Completed: "2021"}},
+	}, criteria, "more system design")
 	if err != nil {
 		t.Fatalf("GenerateInterviewQuestions: %v", err)
 	}
@@ -84,6 +88,15 @@ func TestGenerateInterviewQuestions(t *testing.T) {
 	}
 	if ai.got.GetEmphasis() != "more system design" || ai.got.GetProfile().GetCandidateId() != "cand-001" {
 		t.Errorf("request = %+v", ai.got)
+	}
+	// The structured profile is what lets a question name a position rather than quote a wall
+	// of resume text.
+	sent := ai.got.GetProfile()
+	if len(sent.GetWorkHistory()) != 1 || sent.GetWorkHistory()[0].GetOrganisation() != "Wongnai" {
+		t.Errorf("work history sent = %+v", sent.GetWorkHistory())
+	}
+	if len(sent.GetEducation()) != 1 || sent.GetEducation()[0].GetCompleted() != "2021" {
+		t.Errorf("education sent = %+v", sent.GetEducation())
 	}
 
 	// What came back: criterion ids turned into the names the Recruiter wrote (FR-3.3).
