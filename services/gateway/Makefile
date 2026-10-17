@@ -14,14 +14,18 @@ help:
 	@echo "make fmt    format every file in place"
 	@echo "make build  compile the binary, to check it builds"
 
-# A development key pair. The private half belongs to the Identity Service, which signs; the
-# gateway only ever sees the public half (ADR-009). Never reuse these anywhere real.
+# A development key pair, shared with the Identity Service, whose `make keys` writes the same
+# file. The private half belongs there, because it signs; the gateway only ever sees the public
+# half (ADR-009). An existing pair is kept, so running this on either side does not invalidate
+# the tokens the other has already issued. Never reuse these anywhere real.
+KEY_FILE ?= /tmp/hireassist-dev-key.pem
+
 keys:
-	@openssl ecparam -name prime256v1 -genkey -noout -out /tmp/hireassist-dev-key.pem 2>/dev/null
-	@openssl ec -in /tmp/hireassist-dev-key.pem -pubout -out /tmp/hireassist-dev-key.pub 2>/dev/null
-	@echo "private key (the Identity Service signs with this): /tmp/hireassist-dev-key.pem"
+	@test -f $(KEY_FILE) || openssl ecparam -name prime256v1 -genkey -noout -out $(KEY_FILE) 2>/dev/null
+	@openssl ec -in $(KEY_FILE) -pubout -out $(KEY_FILE).pub 2>/dev/null
+	@echo "private key (the Identity Service signs with this): $(KEY_FILE)"
 	@echo
-	@echo "export JWT_PUBLIC_KEYS=\"$$(cat /tmp/hireassist-dev-key.pub)\""
+	@echo "export JWT_PUBLIC_KEYS=\"$$(cat $(KEY_FILE).pub)\""
 
 run:
 	$(GO) run .

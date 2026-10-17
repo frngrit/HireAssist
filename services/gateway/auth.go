@@ -129,9 +129,12 @@ func (v *verifier) verify(r *http.Request) (caller, error) {
 	return caller{memberID: memberID, role: role}, nil
 }
 
-// key picks the public key a token names. A token with no kid is accepted only when exactly one
-// key is configured — during rotation there is more than one, and guessing would mean a token
-// signed by the retired key still verifying against the new one by luck.
+// key picks the public key a token names. While more than one key is configured a token must
+// name the one it was signed with: during rotation, guessing would mean a token signed by the
+// retired key verifying against the new one by luck.
+//
+// One key configured without a key id means no rotation is in progress, so a token is checked
+// against it whether or not it names a kid — the signature still has to hold.
 func (v *verifier) key(token *jwt.Token) (any, error) {
 	if len(v.keys) == 0 {
 		return nil, errors.New("the gateway has no verification key configured")
@@ -140,10 +143,8 @@ func (v *verifier) key(token *jwt.Token) (any, error) {
 	if key, ok := v.keys[kid]; ok {
 		return key, nil
 	}
-	if kid == "" && len(v.keys) == 1 {
-		for _, only := range v.keys {
-			return only, nil
-		}
+	if only, unnamed := v.keys[""]; unnamed && len(v.keys) == 1 {
+		return only, nil
 	}
 	return nil, fmt.Errorf("no verification key with id %q", kid)
 }

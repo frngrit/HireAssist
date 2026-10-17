@@ -72,6 +72,21 @@ func TestOneKeyNeedsNoKeyID(t *testing.T) {
 	}
 }
 
+func TestOneUnnamedKeyAcceptsATokenThatNamesOne(t *testing.T) {
+	// How the services actually run in development: the Identity Service names its key
+	// `dev-1`, the gateway is handed a bare PEM block. One key means no rotation is under
+	// way, so the kid is informational and the signature decides.
+	s := newSigner(t, "dev-1")
+	keys, err := parsePublicKeys(s.publicKeyPEM(t))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	v := &verifier{keys: keys}
+	if _, err := v.verify(request(t, s.token(t, "m-1", roleRecruiter, time.Minute))); err != nil {
+		t.Errorf("a token signed by the only configured key was rejected: %v", err)
+	}
+}
+
 func TestDuringRotationATokenMustNameItsKey(t *testing.T) {
 	// Two keys configured and a token that names neither: accepting it would mean a token
 	// signed by the retired key verifying against the new one by luck.

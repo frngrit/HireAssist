@@ -48,11 +48,13 @@ type route struct {
 // document without translating it.
 func routeTable(identity, hiring *url.URL) []route {
 	return []route{
-		// UC-0. The Identity Service does not serve these yet; the gateway's half is ready for
-		// it (ADR-009: sign-in returns an access token and a refresh token, and a refresh token
-		// is exchanged once).
+		// UC-0 (ADR-009): sign-in returns an access token and a refresh token, and a refresh
+		// token is exchanged once. Changing a password is public for the same reason refresh
+		// is — a member holding a temporary password cannot sign in to get a token, and FR-0.5
+		// says they must replace it first. The Identity Service asks for the current password.
 		{prefix: "/auth/sign-in", upstream: identity, needs: public},
 		{prefix: "/auth/refresh", upstream: identity, needs: public},
+		{prefix: "/auth/change-password", upstream: identity, needs: public},
 
 		// UC-6. Admin-only here as well as in the Identity Service, which re-reads the caller's
 		// role from its own database before acting (ADR-009) — the gateway's check is the cheap

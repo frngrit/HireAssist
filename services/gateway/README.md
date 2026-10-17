@@ -4,10 +4,10 @@ The single entry point for user traffic (ADR-001). It owns no domain data. For e
 matches a route, verifies the access token, checks the role the route requires, rate-limits the
 caller, and forwards the request to the service that owns it.
 
-**Status:** routing, token verification, the role gate and rate limiting work. Two things are
-waiting on other work rather than on this service: the Identity Service cannot issue a token
-yet, so `/auth/sign-in` has nothing behind it; and the Compliance & Insights Service does not
-exist, so a rejected request is logged rather than sent to the access audit log (FR-0.4).
+**Status:** routing, token verification, the role gate and rate limiting work, and the Identity
+Service now signs tokens, so signing in through the gateway works end to end. One thing is still
+waiting on other work: the Compliance & Insights Service does not exist, so a rejected request is
+logged rather than sent to the access audit log (FR-0.4).
 
 TLS termination (ADR-001) is not here either — it belongs in front of this process in a real
 deployment, and locally everything is plain HTTP.
@@ -26,6 +26,7 @@ against the owning service's OpenAPI document without translating it.
 |---|---|---|
 | `POST /auth/sign-in` | Identity | nothing — a caller cannot hold a token before signing in |
 | `POST /auth/refresh` | Identity | nothing — an expired access token must still be renewable |
+| `POST /auth/change-password` | Identity | nothing — a member with a temporary password cannot sign in first (FR-0.5); the Identity Service asks for the current password |
 | `/members/*` | Identity | Admin |
 | `/job-openings/*` | Hiring | either role |
 | `GET /healthz`, `GET /readyz` | the gateway itself | nothing |
@@ -45,7 +46,8 @@ accepting `none`, and there is a test for exactly that.
 
 More than one key may be configured, which is how a key is rotated: add the new one, accept
 both while old tokens are still alive, remove the old one. While two are configured a token
-must name the key it was signed with.
+must name the key it was signed with. With a single key handed over as a bare PEM block there
+is no rotation to get wrong, so the signature alone decides.
 
 ## Run it
 
@@ -65,8 +67,14 @@ curl -i localhost:8000/healthz                           # 200
 curl -i -H "Authorization: Bearer $TOKEN" localhost:8000/job-openings
 ```
 
-Until the Identity Service can sign, `$TOKEN` has to be minted by hand from the private half of
-the development key pair.
+`$TOKEN` comes from signing in. The Identity Service's `make keys` writes the same development
+key pair and prints the `JWT_PUBLIC_KEYS` line to export here:
+
+```sh
+curl -s localhost:8000/auth/sign-in \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"nok@acme.example","password":"nok-admin-demo-password"}'
+```
 
 ## Configuration
 
