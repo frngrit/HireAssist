@@ -59,7 +59,7 @@ because the table lists it, but it is connected only to the gateway — no other
 | Service | Business capability | Use cases | Owns (private store) |
 |---|---|---|---|
 | **API Gateway** | Single entry point for user traffic: TLS, session validation, rate limiting, routing. The System Scheduler is an internal trigger and does not pass through it | — | nothing |
-| **Identity Service** | Who may sign in and with which role | UC-0, UC-6 | PostgreSQL — accounts, memberships, roles, sessions |
+| **Identity Service** | Who may sign in and with which role | UC-0, UC-6 | PostgreSQL — members, their roles, sessions |
 | **Hiring Service** | The hiring record: openings and criteria, screening batches and their results, shortlist decisions, interview guides | UC-1, UC-2, UC-3 | PostgreSQL — job openings, criteria, batches and per-entry status, scores and overrides, shortlist decisions; MongoDB — interview guides |
 | **Resume Processing Service** | Turning one resume file into a scored candidate profile | UC-2 (per-resume work) | PostgreSQL — the screening work table, candidate identity, collection date; MongoDB — candidate profiles, parsed text, per-criterion scoring output and justifications |
 | **AI Service** | Every call to the language model, behind domain operations | UC-1, UC-2, UC-3 | nothing — prompts and the model credential only |

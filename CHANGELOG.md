@@ -91,6 +91,25 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-16 20:39 — The progress demo's scope recorded; the proposal's ADR index completed
+
+- **The progress brief is recorded in `course/ASSIGNMENT.md`.** The clip shows UC-1 to UC-3 plus
+  signing in: the three use cases the AI Service serves, which chain into one flow and between
+  them use both PostgreSQL and MongoDB.
+- **The broker sits between Hiring and Resume Processing**, carrying the screening handover — the
+  team's division of work, rather than the pipeline events to Compliance & Insights the documents
+  had named as its likeliest place. ADR-010 is to record it.
+- **The proposal's ADR index lists ADR-007 to ADR-009**, which it had been missing. CONTEXT and
+  the assignment status table now count 50 functional requirements, not 44; the status table
+  also stopped calling the use case diagram an SVG and counting six ADRs.
+- **The Identity Service owns members, not accounts and memberships** — the synonyms the glossary
+  rules out — in the runtime view and on the architecture page. The runtime view's UC-6 flow also
+  carried an old title and three of its six operations.
+
+Outstanding: ADR-010, and the documents that change with it.
+
+---
+
 ## 2026-10-15 19:52 — Hiring Service stores job openings in PostgreSQL
 
 - Job openings and their criteria now live in PostgreSQL, implementing ADR-003. Criteria are rows in their own table rather than a `jsonb` column, because ADR-003 puts weighted criteria in the system of record, where constraints enforce them. No new ADR: the store was already decided.

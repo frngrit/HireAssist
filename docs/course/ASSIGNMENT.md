@@ -117,7 +117,31 @@ Invitation Email` was removed once it turned out no use case or requirement desc
 | Problem Description | `PROPOSAL.md` | Done |
 | Target Customers | `PROPOSAL.md` | Done |
 | Scenario (use-case & description) | `PROPOSAL.md` | Done — 7 use cases, above the minimum of 3 |
-| Use Case Diagram | `PROPOSAL.md` → `diagrams/use-case-diagram.puml` | Done — UML notation, PlantUML source with rendered SVG |
-| Functional Requirements | `PROPOSAL.md` → `FUNCTIONAL-REQUIREMENTS.md` | Done — 44, traced to use cases |
+| Use Case Diagram | `PROPOSAL.md` → `diagrams/use-case-diagram.puml` | Done — UML notation, PlantUML source with rendered PNG |
+| Functional Requirements | `PROPOSAL.md` → `FUNCTIONAL-REQUIREMENTS.md` | Done — 50, traced to use cases |
 | Non-functional Requirements | `PROPOSAL.md` → `NON-FUNCTIONAL-REQUIREMENTS.md` | Done — 17, grouped by quality attribute |
-| ADRs (≥3) | `../adr/` | Done — 6 recorded (ADR-001…006; ADR-005 *Proposed*), indexed from `PROPOSAL.md` |
+| ADRs (≥3) | `../adr/` | Done — 9 recorded (ADR-001…009; ADR-005 and ADR-009 *Proposed*), indexed from `PROPOSAL.md` |
+
+---
+
+## Progress submission — the working demo
+
+> Submit your project progress including these:
+>
+> - VDO Clip [<5min] to include your project demo of:
+>   - all 3 business use cases (+ authentication) with at least 2 types of databases (both RDBMS
+>     and No-SQL)
+>   - one service (or more) with message broker i.e. RabbitMQ
+> - Your project proposal document with updated ADRs, revised microservice design, and diagrams
+
+**What this means for us** (agreed 2026-10-16):
+
+- We have five business use cases; the clip shows **UC-1 to UC-3**. They are the three the AI
+  Service serves, they chain into one flow — describe the role, screen the resumes, prepare the
+  interview — and between them they use both stores as ADR-003 divides them: PostgreSQL for the
+  hiring record, MongoDB for candidate profiles, justifications and interview guides.
+  Authentication is UC-0, signing in.
+- **The broker sits between Hiring and Resume Processing.** Hiring publishes a request to screen
+  each resume and consumes the result, in place of the REST handover and its callback. ADR-010 is
+  to record the decision; the architecture diagram, the Service–Operations–Collaborators table
+  and the runtime view change with it.

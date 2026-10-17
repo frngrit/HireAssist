@@ -40,9 +40,10 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 
 ### Identity Service
 
-- **Owns** — PostgreSQL: accounts, memberships, roles, sessions.
+- **Owns** — PostgreSQL: members, their roles, sessions.
 - **Does** — authenticates a member, issues and validates sessions, answers what role a caller
-  holds, and lets an Admin create, remove and re-role recruiters.
+  holds, lets a member replace their password, and lets an Admin list, create, remove and re-role
+  members and set a temporary password.
 - **Called by** — the Gateway, for signing in and refreshing a token, and for member management.
   Not on every request: ADR-009 takes it off that path.
 - **Calls** — nothing. It is the only service with no downstream at all.
@@ -227,10 +228,11 @@ Scheduler:   Scheduler → Compliance.evaluateRetention()
 A candidate in an active hiring process has expiry held for a Recruiter to resolve. An erasure
 that fails is reported as *deletion pending* and retried — never as erased.
 
-### UC-6 — Manage recruiter accounts
+### UC-6 — Manage members and roles
 
 ```
-Admin → Gateway → Identity.createMember() · removeMember() · changeMemberRole()
+Admin → Gateway → Identity.listMembers() · getMember() · createMember() · removeMember()
+                  · changeMemberRole() · setMemberPassword()
 ```
 
 ---

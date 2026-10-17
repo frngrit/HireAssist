@@ -93,7 +93,7 @@ language choice (ADR-005, Proposed), and one deployment per customer (ADR-006).
 
 Written up and moved out of this file:
 
-- **Functional** — `FUNCTIONAL-REQUIREMENTS.md` (44, numbered by use case)
+- **Functional** — `FUNCTIONAL-REQUIREMENTS.md` (50, numbered by use case)
 - **Non-functional** — `NON-FUNCTIONAL-REQUIREMENTS.md` (17, grouped by quality attribute)
 
 The quality attribute demonstrated for the course requirement is **Scalability**, measured as

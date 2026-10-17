@@ -746,6 +746,9 @@ and cannot drift between a summary and the record it summarises.
 | [ADR-004](adr/ADR-004-llm-access.md) | All model access through one AI Service, on a managed API that does not train on our data | Accepted |
 | [ADR-005](adr/ADR-005-per-service-language.md) | Each service chooses its own language and framework, within shared contracts | **Proposed** — languages await service ownership |
 | [ADR-006](adr/ADR-006-single-tenant-deployment.md) | One deployment per customer company | Accepted |
+| [ADR-007](adr/ADR-007-grpc-for-the-ai-service.md) | gRPC on the AI Service boundary — the one exception to REST, for a compiled contract and generated clients on both sides | Accepted |
+| [ADR-008](adr/ADR-008-profile-extraction-is-a-model-call.md) | Turning a resume into a candidate profile is a model call — extracting the text from the PDF stays deterministic in Resume Processing, and no model receives a file | Accepted |
+| [ADR-009](adr/ADR-009-jwt-with-refresh-tokens.md) | Short-lived JWT access tokens with rotating refresh tokens | **Proposed** |
 
 They are best read in order: **ADR-001** draws the service boundaries, **ADR-002** fills in the
 busiest one, **ADR-003** says what each side of those boundaries stores, and **ADR-004** fills in
