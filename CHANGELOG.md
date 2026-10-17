@@ -15,6 +15,31 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-17 21:45 — Two records written for decisions implementation had already made
+
+- **ADR-010: the gateway is the only place an access token is verified.** *Proposed* — it binds
+  the Identity and Hiring Services, whose owners have not agreed. It states what it overrides:
+  ADR-009's requirement that every service acting on the role verify the token itself, and
+  ADR-001's position that enforcement cannot live at the gateway alone. Its argument is that the
+  check would otherwise be written once per language for no protection against the internal
+  calls that carry no member token at all, and that one deployment serves one company. Its
+  costs are stated plainly, including the two that are easy to miss: a demoted Admin is now
+  stopped only when their token expires, and the deployment rule *publish nothing but the
+  gateway* becomes the protection for candidate data rather than an operational preference.
+- **ADR-011: interview guides live in a document store belonging to the Hiring Service.**
+  *Accepted* — ADR-003 had already decided the store class, and whose database is within one
+  service's own storage. The nearly-chosen alternative, a JSON column in the hiring record, is
+  recorded with the two reasons it lost: erasure stops being *drop the documents, keep the
+  counts*, and the storage rule stops being predictable for the next AI-derived artifact.
+- The index gained both rows, the living view now shows what ADR-010 changed in ADR-001, ADR-005
+  and ADR-009 and what ADR-011 settled in ADR-003, and the session-and-token candidate decision
+  is removed as answered. No earlier record was edited.
+- Outstanding: an owner for the gateway (ADR-005 rule 5); UC-3's shortlisted precondition,
+  which can now be checked since shortlisting exists; the proposal's ADR index, which still
+  stops at ADR-006.
+
+---
+
 ## 2026-10-17 19:39 — Screening built to the Resume Processing contract
 
 - **UC-2 runs end to end through RabbitMQ**, on the terms of `resume-processing/MESSAGES.md`,

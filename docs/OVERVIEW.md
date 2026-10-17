@@ -33,10 +33,10 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
   ([ADR-009](adr/ADR-009-jwt-with-refresh-tokens.md)), and the token is forwarded unchanged.
   `Compliance.recordAuthorisationRejected()` on every rejection; routes onward to Identity,
   Hiring, Compliance and Resume Processing. Never the AI Service.
-- **It is the only place a token is checked.** The services behind it do not verify what they
-  receive, on the assumption that they are reachable only on the deployment's private network.
-  That decision reverses ADR-001's position that enforcement cannot live at the gateway alone,
-  and has no record of its own yet.
+- **It is the only place a token is checked**
+  ([ADR-010](adr/ADR-010-verification-at-the-gateway-only.md)). The services behind it do not
+  verify what they receive, on the assumption that they are reachable only on the deployment's
+  private network — which is why nothing but the gateway may be published.
 
 ### Identity Service
 
@@ -51,9 +51,8 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 ### Hiring Service
 
 - **Owns** — PostgreSQL: job openings, criteria, screening batches and per-entry status, scores,
-  overrides, shortlist decisions. MongoDB: interview guides, in a database of its own.
-  *(ADR-003 places AI-derived documents in MongoDB, which is otherwise Resume Processing's
-  store; Hiring having its own is how that was implemented, and is still unrecorded.)*
+  overrides, shortlist decisions. MongoDB: interview guides, in a database of its own
+  ([ADR-011](adr/ADR-011-hiring-document-store.md)).
 - **Does** — holds the entire recruiter-facing hiring record: openings and their criteria, batch
   acceptance and per-resume handover, the ranked list, overrides, shortlisting, interview guides.
 - **Called by** — the Gateway; Resume Processing, calling `reportScreeningResult()` back;
