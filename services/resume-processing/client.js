@@ -28,7 +28,6 @@ async function call(method, path, body) {
 async function main() {
   console.log("\n=== 1. Create (POST) ===");
   const created = await call("POST", "/candidates", {
-    workspace_id: "ws-demo",
     job_opening_id: "job-002",
     full_name: "สมหญิง รักงาน",
     email: "somying@example.com",

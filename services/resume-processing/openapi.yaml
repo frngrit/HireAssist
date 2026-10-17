@@ -1,11 +1,15 @@
 openapi: 3.0.3
 info:
   title: HireAssist Resume Processing Service
-  version: 1.0.0
+  version: 2.0.0
   description: |
-    Owns candidate profiles (ADR-001). Stores them in MongoDB (ADR-003).
-    Exposes REST; only the AI Service speaks gRPC (ADR-007).
+    Owns candidate profiles and screening results (ADR-001). Stores them in
+    MongoDB (ADR-003). Exposes REST; only the AI Service speaks gRPC (ADR-007).
     This document is the contract for the service's REST boundary (ADR-005).
+
+    Screening itself is asynchronous and does not go through REST: the Hiring
+    Service publishes `screening.requested` on RabbitMQ and receives
+    `screening.completed`. That contract is in MESSAGES.md.
 servers:
   - url: http://localhost:3000
     description: Local development
@@ -63,17 +67,24 @@ paths:
         description: Candidate id, e.g. cand-001
         schema:
           type: string
-          pattern: "^cand-\\d{3}$"
+          pattern: "^cand-\\d{3,}$"
     get:
-      summary: Get one candidate profile
+      summary: Get one candidate profile with every screening of it (UC-2 justification, UC-3 input)
       operationId: getCandidateProfile
       responses:
         "200":
-          description: The candidate profile
+          description: The candidate profile and its screening results, newest first
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CandidateProfile"
+                allOf:
+                  - $ref: "#/components/schemas/CandidateProfile"
+                  - type: object
+                    properties:
+                      screenings:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ScreeningResult"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -95,7 +106,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
-      summary: Erase a candidate profile
+      summary: Erase a candidate profile and its screening results
       operationId: eraseCandidateProfile
       responses:
         "200":
@@ -110,6 +121,33 @@ paths:
                     example: true
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /screenings:
+    get:
+      summary: Screening results of one batch, highest score first
+      operationId: listScreeningResults
+      parameters:
+        - name: batchId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Results for the batch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScreeningResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /healthz:
     get:
@@ -129,7 +167,7 @@ paths:
 
   /readyz:
     get:
-      summary: Readiness probe (ready once MongoDB is connected)
+      summary: Readiness probe (ready once MongoDB and RabbitMQ are both connected)
       operationId: ready
       responses:
         "200":
@@ -154,37 +192,97 @@ components:
         id:
           type: string
           example: cand-001
-        workspace_id:
-          type: string
-          example: ws-demo
         job_opening_id:
           type: string
           example: job-001
         full_name:
           type: string
-          example: Thanabul Parodom
+          nullable: true
+          description: Only for profiles created by hand; the AI profile carries no name or contact details.
         email:
           type: string
           format: email
-          example: thanabul.p@example.com
+          nullable: true
         skills:
           type: array
           items:
             type: string
           example: [Java, Spring Boot, PostgreSQL]
+        work_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkExperience"
+        education:
+          type: array
+          items:
+            $ref: "#/components/schemas/Education"
+        additional_text:
+          type: string
         resume_text:
           type: string
-          example: 4 years as a backend developer at a fintech startup in Bangkok
+          description: Text extracted from the resume PDF
+        source:
+          type: object
+          nullable: true
+          description: Set when the profile came from the screening pipeline
+          properties:
+            batchId: { type: string }
+            resumeId: { type: string }
+            bucket: { type: string }
+            key: { type: string }
         created_at:
           type: string
           format: date-time
 
+    WorkExperience:
+      type: object
+      properties:
+        title: { type: string }
+        organisation: { type: string }
+        start: { type: string }
+        end: { type: string }
+        summary: { type: string }
+
+    Education:
+      type: object
+      properties:
+        qualification: { type: string }
+        institution: { type: string }
+        completed: { type: string }
+
+    ScreeningResult:
+      type: object
+      properties:
+        batch_id: { type: string, example: batch-001 }
+        resume_id: { type: string, example: res-001 }
+        job_opening_id: { type: string, example: job-001 }
+        candidate_id: { type: string, example: cand-001 }
+        status:
+          type: string
+          enum: [processing, scored, unparsable, failed]
+        score: { type: integer, nullable: true, minimum: 0, maximum: 100 }
+        meets_must_haves: { type: boolean, nullable: true }
+        unmet_must_have_ids:
+          type: array
+          items: { type: string }
+        assessments:
+          type: array
+          items:
+            type: object
+            properties:
+              criterion_id: { type: string }
+              met: { type: boolean }
+              score: { type: integer }
+              evidence: { type: string }
+        justification: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        attempts: { type: integer }
+        updated_at: { type: string, format: date-time }
+
     CandidateProfileCreate:
       type: object
-      required: [workspace_id, job_opening_id, full_name, email]
+      required: [full_name, email]
       properties:
-        workspace_id:
-          type: string
         job_opening_id:
           type: string
         full_name:
@@ -201,7 +299,7 @@ components:
 
     CandidateProfileUpdate:
       type: object
-      description: workspace_id and job_opening_id cannot be changed.
+      description: job_opening_id cannot be changed.
       properties:
         full_name:
           type: string

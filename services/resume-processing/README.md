@@ -1,83 +1,120 @@
-# Resume Processing Service (REST CRUD)
+# Resume Processing Service
 
-Owns candidate profiles for HireAssist.
+Owns candidate profiles and screening results for HireAssist, and runs the
+UC-2 screening pipeline: one resume in, one scored (or flagged) result out.
 
-- Exposes **REST**: per ADR-007, only the AI Service speaks gRPC.
-- Stores data in **MongoDB**: per ADR-003, a candidate profile is an AI-derived document whose shape changes with the prompt.
-- Stack: Node.js 18+, Express, Mongoose.
+```
+Hiring ──RabbitMQ: screening.requested──►  Resume Processing
+                                             1. fetch the PDF from MinIO (S3 API)
+                                             2. PDF → text (local, deterministic)
+                                             3. AI Service.ExtractProfileFromText  (gRPC)
+                                             4. AI Service.ScoreAgainstCriteria    (gRPC)
+                                             5. save profile + result in MongoDB
+Hiring ◄──RabbitMQ: screening.completed────┘
+Hiring ──REST: GET /candidates/{id}──────►  profile + per-criterion evidence
+```
+
+| Decision | Where it comes from |
+|---|---|
+| RabbitMQ between Hiring and this service, with retry and dead-letter | ADR-010 (replaces the REST handover and work table of ADR-002; keeps its one-resume-one-unit rule) |
+| gRPC to the AI Service, from the shared `proto/` | ADR-007, ADR-005 |
+| REST for everything else | ADR-007 |
+| MongoDB for profiles and scoring output, keyed by `candidate_id` only | ADR-003, ADR-006 |
+| Resume text is extracted here, never sent as a file to the AI Service | `ai_service.proto` (`CandidateProfile`) |
+
+The message contract with Hiring is in **[MESSAGES.md](MESSAGES.md)**; the REST
+contract is in **[openapi.yaml](openapi.yaml)**.
 
 ## Owners
 
 | Role | Name |
 |---|---|
-| Primary | T |
+| Primary | Thanabul Parodom |
 | Secondary | _to be named by the team_ |
-
-ADR-005 asks every service to name a primary and a secondary owner, and the secondary must be able to build, run and deploy it.
 
 ## Files
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `server.js` | The service: REST endpoints backed by MongoDB |
-| `openapi.yaml` | The REST contract for this service (ADR-005) |
-| `client.js` | Demo script that walks through CRUD, pausing after each step |
-| `Dockerfile` | Container image (ADR-005) |
-| `k8s/resume-processing.yaml` | Kubernetes Deployment and ClusterIP Service (ADR-001) |
+| `server.js` | Entry point: REST server + RabbitMQ consumer |
+| `src/queue.js` | Consume `screening.requested`, publish `screening.completed`, retry and dead-letter |
+| `src/pipeline.js` | The five steps above, idempotent per `(batch_id, resume_id)` |
+| `src/storage.js` | MinIO / S3 adapter |
+| `src/pdf.js` | PDF → text; flags scanned PDFs as `unparsable` |
+| `src/ai.js` | gRPC client generated from `proto/hireassist/ai/v1/ai_service.proto` |
+| `src/db.js` | MongoDB models |
+| `src/rest.js` | REST endpoints |
+| `scripts/fake-hiring.js` | Plays the Hiring Service: uploads resumes, publishes requests, prints results |
+| `scripts/replay-dlq.js` | Moves dead-lettered messages back for another try |
+| `client.js` | The manual CRUD walkthrough from the REST milestone |
+| `samples/` | Three made-up resumes: two readable, one "scanned" with no text |
+| `docker-compose.yml` | RabbitMQ, S3 object storage (moto), MongoDB and the AI Service (canned answers) for local runs |
+| `Dockerfile`, `k8s/` | Container image (build from the repo root) and Kubernetes manifest |
 
-## Endpoints
+## Run it locally
 
-| Method | Path | Action |
+Needs Docker Desktop and Node.js 18+, and the **whole repository** (the service
+reads the AI contract from `proto/` and the compose file starts
+`services/ai-service`).
+
+```bash
+cd services/resume-processing
+docker compose up -d        # RabbitMQ, S3 storage, MongoDB, AI Service (first start takes a minute)
+npm install
+npm start                   # terminal 1: the service
+npm run fake-hiring         # terminal 2: send the sample resumes through the pipeline
+```
+
+`fake-hiring` prints each `screening.completed` as it arrives and then the
+ranked list. Two readable resumes come back `scored`; the scanned one comes back
+`unparsable` for manual review.
+
+Things worth looking at while it runs:
+
+| What | Where |
+|---|---|
+| Queues and message rates | http://localhost:15672 (guest / guest) |
+| Uploaded resumes | `curl http://localhost:9000/resumes` (S3 bucket listing, XML) |
+| Results of a batch | `curl "http://localhost:3000/screenings?batchId=<batch id>"` |
+| One candidate with evidence | `curl http://localhost:3000/candidates/cand-001` |
+| Readiness | `curl http://localhost:3000/readyz` |
+
+### Showing retry and dead-letter
+
+```bash
+npm run fake-hiring -- --missing   # one request points at a file that does not exist → failed, dead-lettered at once
+docker compose stop ai-service     # AI down: requests retry 3 times (about 5, 10, 20 s), then dead-letter
+npm run fake-hiring
+docker compose start ai-service
+npm run replay-dlq                 # move them back; they are scored this time
+```
+
+## Configuration
+
+| Variable | Default | Meaning |
 |---|---|---|
-| POST | `/candidates` | Create |
-| GET | `/candidates/:id` | Read one |
-| GET | `/candidates?jobOpeningId=job-001` | Read list |
-| PUT | `/candidates/:id` | Update (only the fields sent) |
-| DELETE | `/candidates/:id` | Delete |
-| GET | `/healthz` | Liveness: the process is up |
-| GET | `/readyz` | Readiness: `200` once MongoDB is connected, `503` before |
+| `PORT` | `3000` | REST port |
+| `MONGO_URL`, `MONGO_DB` | `mongodb://127.0.0.1:27017`, `hireassist_resume_processing` | MongoDB (Atlas works too) |
+| `AMQP_URL` | `amqp://guest:guest@127.0.0.1:5672` | RabbitMQ |
+| `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION` | `http://127.0.0.1:9000`, `minioadmin`, `minioadmin`, `us-east-1` | MinIO |
+| `AI_SERVICE_ADDR` | `127.0.0.1:50051` | AI Service gRPC address |
+| `AI_PROTO_PATH` | `../../proto/hireassist/ai/v1/ai_service.proto` | The shared contract |
+| `MAX_RETRIES`, `RETRY_DELAY_MS`, `PREFETCH` | `3`, `5000`, `4` | Retries, first retry delay (doubles each time, ±20%), and how many resumes one replica runs at once |
 
-Candidate ids are short and readable: `cand-001`, `cand-002`, … (the next number after the highest existing id), so they are easy to tell apart from job opening ids such as `job-001`. This keeps the demo easy to follow; it assumes one writer at a time.
-
-Every response carries an `X-Correlation-Id` header. Send one to reuse it; otherwise the service generates one. Logs are one JSON object per line with `time`, `level`, `service`, `msg`, and for requests `correlation_id`, `method`, `path`, `status`, `duration_ms`.
-
-## Run locally
-
-1. `npm install`
-2. Point it at MongoDB. For Atlas: `export MONGO_URL='mongodb+srv://<user>:<password>@<cluster>/'`. Without `MONGO_URL` it connects to `mongodb://127.0.0.1:27017`. `PORT` (default `3000`) and `MONGO_DB` (default `hireassist_resume_processing`) are optional.
-3. `npm start`, then wait for the `Resume Processing Service running` and `Connected to MongoDB` log lines.
-4. In a second terminal, either run `npm run client`, or call the API with curl:
-
-```bash
-# Create
-curl -X POST http://localhost:3000/candidates -H "Content-Type: application/json" \
-  -d '{"workspace_id":"ws-demo","job_opening_id":"job-001","full_name":"Thanabul Parodom","email":"thanabul.p@example.com","skills":["Java","Spring Boot","PostgreSQL"],"resume_text":"4 years as a backend developer at a fintech startup in Bangkok"}'
-
-# Read one / read list
-curl http://localhost:3000/candidates/cand-001
-curl "http://localhost:3000/candidates?jobOpeningId=job-001"
-
-# Update
-curl -X PUT http://localhost:3000/candidates/cand-001 -H "Content-Type: application/json" \
-  -d '{"skills":["Java","Spring Boot","PostgreSQL","Docker"],"resume_text":"5 years as a backend developer at a fintech startup in Bangkok"}'
-
-# Delete
-curl -X DELETE http://localhost:3000/candidates/cand-001
-```
-
-## Run in Docker / Kubernetes
-
-```bash
-docker build -t hireassist/resume-processing:1.0.0 .
-docker run -p 3000:3000 -e MONGO_URL='mongodb+srv://...' hireassist/resume-processing:1.0.0
-```
-
-For Kubernetes, create the `resume-processing-mongo` Secret described at the top of `k8s/resume-processing.yaml`, then `kubectl apply -f k8s/resume-processing.yaml`. Inside the cluster the service is reached at `http://resume-processing.hireassist.svc`.
+Logs are one JSON object per line; every request and every screening carries a
+`correlation_id` (ADR-005).
 
 ## Known gaps
 
-- **Workspace enforcement (ADR-001).** ADR-001 requires every service to enforce the caller's workspace, not just receive it. This service stores `workspace_id` but does not yet check it on reads, updates or deletes. To be added once the team fixes how workspace identity travels on internal calls (header name).
-- **Shared contract location (ADR-005).** ADR-005 wants all schemas in one place; where that is has not been decided, so `openapi.yaml` lives in this folder for now.
-- **AI Service not called yet** (agreed in the group as demo scope).
-- **Candidate identity in MongoDB.** ADR-003 puts candidate identity and retention dates in PostgreSQL; the demo keeps everything in MongoDB.
-- **OpenTelemetry tracing.** The correlation id is propagated and logged, but traces are not exported yet.
+- **Caller checks on REST reads.** The endpoints do not yet check who is
+  calling. That waits for the Gateway and Identity to settle how identity
+  reaches internal services. (There is no workspace check to do: one deployment
+  serves one company, ADR-006.)
+- **Candidate identity in MongoDB.** ADR-003 puts identity and retention dates
+  in PostgreSQL; this service keeps everything in MongoDB for now.
+- **Canned AI answers locally.** The compose file runs the AI Service with
+  `AI_SERVICE_PROVIDER=canned`, so every resume gets the same scripted profile
+  and score. Set `AI_SERVICE_API_KEY` and remove the provider override for
+  real scoring.
+- **OpenTelemetry tracing.** The correlation id is propagated and logged, but
+  no traces are exported yet.

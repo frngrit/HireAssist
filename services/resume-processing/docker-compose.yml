@@ -1,0 +1,48 @@
+# Everything the Resume Processing pipeline needs, for local development and
+# the demo. Run from this folder:   docker compose up -d
+#
+# The team's root docker-compose.yml (owned by A) should end up with the same
+# rabbitmq / object storage / mongodb services; this file is for testing B on its own.
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # management UI: http://localhost:15672  (guest / guest)
+
+  # S3-compatible object storage for the resume PDFs. minio/minio can no longer
+  # be pulled from Docker Hub ("pull access denied"), so locally we use moto's
+  # S3 server: same S3 API, accepts any access key, keeps files in memory. The cluster still
+  # points S3_ENDPOINT at the team's object store.
+  s3:
+    image: motoserver/moto:latest
+    ports:
+      - "9000:5000"     # S3 API on http://localhost:9000
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+
+  # The AI Service from services/ai-service, run with canned answers so no API
+  # key is needed. Remove AI_SERVICE_PROVIDER and set AI_SERVICE_API_KEY to use
+  # the real model.
+  ai-service:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /repo/services/ai-service
+    volumes:
+      - ../..:/repo
+    environment:
+      AI_SERVICE_PROVIDER: canned
+      UV_PROJECT_ENVIRONMENT: /opt/venv   # keep the Linux venv out of your folder
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        uv sync --frozen &&
+        mkdir -p src/ai_service/gen && touch src/ai_service/gen/__init__.py &&
+        uv run python -m grpc_tools.protoc -I../../proto --python_out=src/ai_service/gen --pyi_out=src/ai_service/gen --grpc_python_out=src/ai_service/gen ../../proto/hireassist/ai/v1/ai_service.proto &&
+        find src/ai_service/gen -name '*_pb2_grpc.py' -exec sed -i 's/^from hireassist/from ai_service.gen.hireassist/' {} + &&
+        uv run python -m ai_service
+    ports:
+      - "50051:50051"
