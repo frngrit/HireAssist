@@ -26,16 +26,20 @@ type config struct {
 	publicKeys string
 	rateLimit  float64 // requests per second allowed to one caller
 	rateBurst  int     // how many may arrive at once
+	// cookieSecure marks the refresh cookie Secure. On by default; off only for plain-HTTP
+	// local runs, where a browser may refuse a Secure cookie.
+	cookieSecure bool
 }
 
 func loadConfig() config {
 	return config{
-		port:        envOr("PORT", "8000"),
-		identityURL: envOr("IDENTITY_URL", "http://localhost:8081"),
-		hiringURL:   envOr("HIRING_URL", "http://localhost:8080"),
-		publicKeys:  os.Getenv("JWT_PUBLIC_KEYS"),
-		rateLimit:   envFloat("RATE_LIMIT_PER_SECOND", 20),
-		rateBurst:   envInt("RATE_LIMIT_BURST", 40),
+		port:         envOr("PORT", "8000"),
+		identityURL:  envOr("IDENTITY_URL", "http://localhost:8081"),
+		hiringURL:    envOr("HIRING_URL", "http://localhost:8080"),
+		publicKeys:   os.Getenv("JWT_PUBLIC_KEYS"),
+		rateLimit:    envFloat("RATE_LIMIT_PER_SECOND", 20),
+		rateBurst:    envInt("RATE_LIMIT_BURST", 40),
+		cookieSecure: os.Getenv("SESSION_COOKIE_SECURE") != "false",
 	}
 }
 
@@ -77,6 +81,7 @@ func run() error {
 		routes:   routeTable(identity, hiring),
 		verifier: &verifier{keys: keys},
 		limiter:  newRateLimiter(cfg.rateLimit, cfg.rateBurst),
+		cookies:  sessionCookies{secure: cfg.cookieSecure},
 	}
 
 	server := &http.Server{

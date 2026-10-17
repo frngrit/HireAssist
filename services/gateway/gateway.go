@@ -11,6 +11,7 @@ type gateway struct {
 	routes   []route
 	verifier *verifier
 	limiter  *rateLimiter
+	cookies  sessionCookies
 }
 
 // handler builds the whole gateway as one http.Handler. The liveness and readiness probes are
@@ -19,6 +20,8 @@ func (g *gateway) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", g.handleHealth)
 	mux.HandleFunc("GET /readyz", g.handleReady)
+	// The gateway's own route: only it can clear the HttpOnly cookie it set (session_cookie.go).
+	mux.HandleFunc("POST /auth/sign-out", g.cookies.handleSignOut)
 	mux.HandleFunc("/", g.forward)
 	return mux
 }
@@ -89,7 +92,14 @@ func (g *gateway) forward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxyTo(matched.upstream).ServeHTTP(w, r)
+	proxy := proxyTo(matched.upstream)
+	if wantsCookie(r) {
+		if !g.cookies.presentCookie(w, r) {
+			return
+		}
+		proxy.ModifyResponse = g.cookies.moveTokenToCookie
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 // forwardedIdentityHeaders are the headers the gateway refuses to pass through from a client.
