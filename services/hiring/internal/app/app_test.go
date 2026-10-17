@@ -67,6 +67,49 @@ func createThenOpen(t *testing.T, cfg app.Config) {
 	}
 }
 
+// UC-3 through the assembled service with neither of the services it reads configured: the
+// Hiring Service still starts and serves its own operations, and generating a guide says who
+// is missing instead of returning an empty one.
+func TestAssembledService_UC3WithoutItsUpstreams(t *testing.T) {
+	handler, closeService, err := app.New(context.Background(), app.Config{})
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	defer closeService()
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	created, err := http.Post(srv.URL+"/job-openings", "application/json", strings.NewReader(`{
+		"title": "Backend Engineer",
+		"criteria": [{"name": "3+ years of Go", "classification": "must-have", "weight": 5}],
+		"expected_time_to_fill_days": 30
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d", created.StatusCode)
+	}
+
+	guide, err := http.Post(srv.URL+created.Header.Get("Location")+"/candidates/cand-001/interview-guide", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guide.Body.Close()
+
+	if guide.StatusCode != http.StatusBadGateway {
+		t.Fatalf("generate status = %d, want 502", guide.StatusCode)
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(guide.Body).Decode(&body)
+	if !strings.Contains(body.Error, "RESUME_PROCESSING_URL") {
+		t.Errorf("error = %q, want it to name what is missing", body.Error)
+	}
+}
+
 // A database that cannot be reached fails startup instead of failing the first request.
 func TestNew_UnreachableDatabaseFailsStartup(t *testing.T) {
 	_, _, err := app.New(context.Background(), app.Config{

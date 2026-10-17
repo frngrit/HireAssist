@@ -30,11 +30,14 @@ const (
 	maxBodyBytes = 1 << 20
 )
 
-type handler struct{ svc JobOpenings }
+type handler struct {
+	svc    JobOpenings
+	guides InterviewGuides
+}
 
-// NewHandler routes the job opening endpoints to the injected use cases.
-func NewHandler(svc JobOpenings) http.Handler {
-	h := handler{svc: svc}
+// NewHandler routes the endpoints to the injected use cases.
+func NewHandler(svc JobOpenings, guides InterviewGuides) http.Handler {
+	h := handler{svc: svc, guides: guides}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /job-openings", h.create)
 	mux.HandleFunc("GET /job-openings", h.list)
@@ -43,6 +46,13 @@ func NewHandler(svc JobOpenings) http.Handler {
 	mux.HandleFunc("POST /job-openings/{id}/pause", h.pause)
 	mux.HandleFunc("POST /job-openings/{id}/resume", h.resume)
 	mux.HandleFunc("POST /job-openings/{id}/close", h.close)
+
+	// UC-3, under the opening the guide is for.
+	const guidePath = "/job-openings/{id}/candidates/{candidateId}/interview-guide"
+	mux.HandleFunc("POST "+guidePath, h.generateGuide)                    // generateInterviewGuide()
+	mux.HandleFunc("GET "+guidePath, h.getGuide)                          // getInterviewGuide()
+	mux.HandleFunc("POST "+guidePath+"/regenerate", h.regenerateGuide)    // reviseGuide(), asking again
+	mux.HandleFunc("PUT "+guidePath+"/questions", h.reviseGuideQuestions) // reviseGuide(), the Recruiter's own
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -196,12 +206,19 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 // reported as 500 without detail, so infrastructure internals never reach the browser.
 func writeError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, usecase.ErrNotFound):
+	case errors.Is(err, usecase.ErrNotFound),
+		errors.Is(err, usecase.ErrGuideNotFound),
+		errors.Is(err, usecase.ErrCandidateNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
-	case errors.Is(err, domain.ErrInvalidJobOpening):
+	case errors.Is(err, domain.ErrInvalidJobOpening), errors.Is(err, domain.ErrInvalidInterviewGuide):
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
-	case errors.Is(err, domain.ErrInvalidTransition):
+	case errors.Is(err, domain.ErrInvalidTransition), errors.Is(err, usecase.ErrGuideExists):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+	case errors.Is(err, usecase.ErrUpstreamUnavailable):
+		// The Resume Processing Service or the AI Service could not answer. It is their
+		// failure, not a bad request, and an empty guide would hide it.
+		slog.Error("UC-3 upstream failed", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 	default:
 		slog.Error("unexpected error", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})

@@ -6,7 +6,8 @@
 --
 -- Synthetic data only. Never put a real person's details here.
 
-TRUNCATE members;
+-- CASCADE because sessions reference members: resetting the demo members also signs them out.
+TRUNCATE members CASCADE;
 
 INSERT INTO members (id, email, password_hash, temporary_password, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'nok@acme.example',

@@ -25,9 +25,50 @@ type fixedID struct{}
 
 func (fixedID) NewID() string { return "jo-1" }
 
+// stubProfiles stands in for the Resume Processing Service: UC-3 reads a profile it does not
+// own, and these tests are about this service's half of the exchange.
+type stubProfiles struct{}
+
+func (stubProfiles) GetCandidateProfile(_ context.Context, candidateID string) (domain.CandidateProfile, error) {
+	return domain.CandidateProfile{CandidateID: candidateID, Skills: []string{"Go", "Kubernetes"}}, nil
+}
+
+// stubGenerator stands in for the AI Service.
+type stubGenerator struct{}
+
+func (stubGenerator) GenerateInterviewQuestions(_ context.Context, _ domain.CandidateProfile, criteria []domain.Criterion, _ string) ([]domain.Question, domain.ModelAttribution, error) {
+	return []domain.Question{{
+			Text:      "You list Kubernetes — what did you actually operate?",
+			Criterion: criteria[len(criteria)-1].Name,
+			Evidence:  "Kubernetes on the resume",
+			Kind:      domain.ResumeClaim,
+		}},
+		domain.ModelAttribution{Provider: "anthropic", Model: "a-model", PromptVersion: "uc3-1"},
+		nil
+}
+
+type guideID struct{}
+
+func (guideID) NewID() string { return "ig-1" }
+
 func newServer() http.Handler {
-	svc := usecase.NewJobOpeningService(memory.NewJobOpeningRepository(), fixedClock{}, fixedID{})
-	return httpapi.NewHandler(svc)
+	return assemble(stubProfiles{}, stubGenerator{})
+}
+
+func newServerWithGenerator(generator usecase.QuestionGenerator) http.Handler {
+	return assemble(stubProfiles{}, generator)
+}
+
+func newServerWithProfiles(profiles usecase.CandidateProfiles) http.Handler {
+	return assemble(profiles, stubGenerator{})
+}
+
+func assemble(profiles usecase.CandidateProfiles, generator usecase.QuestionGenerator) http.Handler {
+	openings := memory.NewJobOpeningRepository()
+	svc := usecase.NewJobOpeningService(openings, fixedClock{}, fixedID{})
+	guides := usecase.NewInterviewGuideService(
+		memory.NewInterviewGuideRepository(), openings, profiles, generator, fixedClock{}, guideID{})
+	return httpapi.NewHandler(svc, guides)
 }
 
 const validBody = `{
@@ -213,7 +254,10 @@ func TestCloseEndpoint_UnknownOutcomeIs422(t *testing.T) {
 
 // ---- failures and operations ----
 
-type failingService struct{ httpapi.JobOpenings }
+type failingService struct {
+	httpapi.JobOpenings
+	httpapi.InterviewGuides
+}
 
 func (failingService) ListJobOpenings(context.Context) ([]domain.JobOpening, error) {
 	return nil, errors.New("pq: connection refused to 10.0.0.5:5432")
@@ -221,7 +265,7 @@ func (failingService) ListJobOpenings(context.Context) ([]domain.JobOpening, err
 
 // An unexpected failure is 500 and does not leak infrastructure detail to the browser.
 func TestUnexpectedErrorIs500WithoutDetail(t *testing.T) {
-	rec := do(t, httpapi.NewHandler(failingService{}), http.MethodGet, "/job-openings", "")
+	rec := do(t, httpapi.NewHandler(failingService{}, failingService{}), http.MethodGet, "/job-openings", "")
 
 	wantStatus(t, rec, http.StatusInternalServerError)
 	if strings.Contains(rec.Body.String(), "10.0.0.5") {

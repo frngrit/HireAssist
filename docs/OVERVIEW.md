@@ -24,29 +24,31 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 ### API Gateway
 
 - **Owns** — nothing. No schema, no store.
-- **Does** — terminates TLS, validates the session token, resolves the caller's role, rate-limits,
-  routes. Rejects any request exceeding the caller's role.
+- **Does** — terminates TLS, verifies the access token's signature and expiry itself against the
+  Identity Service's public key, resolves the caller's role from it, rate-limits, routes. Rejects
+  any request exceeding the caller's role.
 - **Called by** — the recruiter-facing web application. The only public entry point for user
   traffic; the System Scheduler is an internal trigger and does not pass through it.
-- **Calls** — `Identity.validateSession()` on every request; `Compliance.recordAuthorisationRejected()`
-  on every rejection; routes onward to Identity, Hiring, Compliance and Resume Processing. Never
-  the AI Service.
+- **Calls** — no one to check a token: verification is local ([ADR-009](adr/ADR-009-jwt-with-refresh-tokens.md)),
+  and the token is forwarded unchanged. `Compliance.recordAuthorisationRejected()` on every
+  rejection; routes onward to Identity, Hiring, Compliance and Resume Processing. Never the AI
+  Service.
 
 ### Identity Service
 
 - **Owns** — PostgreSQL: accounts, memberships, roles, sessions.
 - **Does** — authenticates a member, issues and validates sessions, answers what role a caller
   holds, and lets an Admin create, remove and re-role recruiters.
-- **Called by** — the Gateway, on every request.
-- **Calls** — nothing. It is the only service with no downstream at all, which is what makes it
-  safe to place on the hot path of every request.
+- **Called by** — the Gateway, for signing in and refreshing a token, and for member management.
+  Not on every request: ADR-009 takes it off that path.
+- **Calls** — nothing. It is the only service with no downstream at all.
 
 ### Hiring Service
 
 - **Owns** — PostgreSQL: job openings, criteria, screening batches and per-entry status, scores,
-  overrides, shortlist decisions. MongoDB: interview guides. *(That document store is an open
-  decision — [ADR-003](adr/ADR-003-polyglot-persistence.md) places AI-derived documents in
-  MongoDB, which is otherwise Resume Processing's store.)*
+  overrides, shortlist decisions. MongoDB: interview guides, in a database of its own.
+  *(ADR-003 places AI-derived documents in MongoDB, which is otherwise Resume Processing's
+  store; Hiring having its own is how that was implemented, and is still unrecorded.)*
 - **Does** — holds the entire recruiter-facing hiring record: openings and their criteria, batch
   acceptance and per-resume handover, the ranked list, overrides, shortlisting, interview guides.
 - **Called by** — the Gateway; Resume Processing, calling `reportScreeningResult()` back;
@@ -104,8 +106,9 @@ Browser → Gateway → Identity.authenticateMember()
                   ← session token
 ```
 
-Every later request passes `Gateway → Identity.validateSession()`, which resolves the role before
-the request is routed. A request above the caller's role stops at the Gateway, which calls
+Every later request carries that token. The Gateway verifies it locally and reads the role from
+it, with no call to Identity (ADR-009); an expired one is renewed through `POST /auth/refresh`. A
+request above the caller's role stops at the Gateway, which calls
 `Compliance.recordAuthorisationRejected()` for the access audit log.
 
 ### UC-1 — Create a job opening

@@ -10,6 +10,7 @@ from docx.oxml import OxmlElement
 
 REPO = "/Users/patiphonpuntusin/Time/Chula/sw-arch/hire-assist"
 OUT = os.path.join(REPO, "docs", "HireAssist-ADRs.docx")
+INDEX = os.path.join(REPO, "docs", "adr", "INDEX.md")
 
 INK = RGBColor(0x1A, 0x1A, 0x1A)
 ACCENT = RGBColor(0x1B, 0x5E, 0x8C)
@@ -218,6 +219,43 @@ def render(doc, md, first):
     flush_all()
 
 
+def latest_date(files):
+    """The stack is current as of its newest record."""
+    import datetime
+    dates = []
+    for f in files:
+        m = re.search(r'\n\s*\*\*?Date:?\*\*?\s*(\d{4}-\d{2}-\d{2})', open(f).read())
+        if not m:
+            m = re.search(r'(\d{4}-\d{2}-\d{2})', open(f).read())
+        if m:
+            dates.append(m.group(1))
+    if not dates:
+        raise ValueError('no date found in any ADR')
+    d = datetime.date.fromisoformat(max(dates))
+    return f'{d.day} {d.strftime("%B %Y")}'
+
+
+def index_table(path, heading):
+    """Lift one markdown table out of INDEX.md, so the fact lives in exactly one file."""
+    rows, seen = [], False
+    for line in open(path).read().split('\n'):
+        s = line.strip()
+        if s.startswith('#') and heading in s:
+            seen = True
+            continue
+        if not seen:
+            continue
+        if s.startswith('|') and s.endswith('|'):
+            if re.match(r'^\|[\s:\-\|]+\|$', s):
+                continue
+            rows.append([c.strip() for c in s.strip('|').split('|')])
+        elif rows:
+            break
+    if not rows or len(rows[0]) != 3:
+        raise ValueError(f'table under "{heading}" not found in {path}, or its shape changed')
+    return rows
+
+
 def main():
     doc = Document()
 
@@ -240,6 +278,8 @@ def main():
     for s in doc.sections:
         s.left_margin = s.right_margin = Inches(1.0)
         s.top_margin = s.bottom_margin = Inches(0.9)
+
+    files = sorted(glob.glob(os.path.join(REPO, 'docs', 'adr', 'ADR-*.md')))
 
     # --- title page ---
     t = doc.add_paragraph()
@@ -267,10 +307,9 @@ def main():
     t5 = doc.add_paragraph()
     t5.alignment = WD_ALIGN_PARAGRAPH.CENTER
     t5.paragraph_format.space_before = Pt(20)
-    r = t5.add_run('12 September 2026')
+    r = t5.add_run(latest_date(files))
     r.font.size = Pt(10); r.font.color.rgb = MUTED
 
-    files = sorted(glob.glob(os.path.join(REPO, 'docs', 'adr', 'ADR-*.md')))
 
     # --- contents ---
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
@@ -293,6 +332,16 @@ def main():
     for r in p.runs:
         r.font.color.rgb = MUTED
         r.italic = True
+
+    # --- what later records have changed ---
+    doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+    h = doc.add_heading(level=1)
+    h.add_run('What later records have changed')
+    p = doc.add_paragraph()
+    add_runs(p, 'Because an earlier record is never edited, this is the only place that says '
+                'which parts of an earlier one no longer hold. Read it before acting on any '
+                'record below.')
+    add_table(doc, index_table(INDEX, 'What later records have changed'))
 
     # --- the records ---
     for f in files:

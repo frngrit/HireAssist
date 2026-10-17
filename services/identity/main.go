@@ -16,8 +16,12 @@ import (
 
 // config holds everything the service reads from environment variables.
 type config struct {
-	port        string
-	databaseURL string
+	port            string
+	databaseURL     string
+	privateKeyPEM   string
+	keyID           string
+	accessTokenTTL  time.Duration
+	sessionLifetime time.Duration
 }
 
 func loadConfig() config {
@@ -26,7 +30,29 @@ func loadConfig() config {
 		// No default: a connection string carries a password, so it never lives in code.
 		// `make run` passes the one for the local Docker database.
 		databaseURL: os.Getenv("DATABASE_URL"),
+		// The signing key is the most dangerous secret in the system (ADR-009). It is read
+		// from the environment, never from a file in the repository. `make keys` makes a
+		// development pair.
+		privateKeyPEM:   os.Getenv("JWT_PRIVATE_KEY"),
+		keyID:           os.Getenv("JWT_KEY_ID"),
+		accessTokenTTL:  envDuration("ACCESS_TOKEN_TTL", defaultAccessTokenTTL),
+		sessionLifetime: envDuration("SESSION_LIFETIME", defaultSessionLifetime),
 	}
+}
+
+// envDuration reads a Go duration such as 15m or 8h, falling back when unset. An unreadable
+// value is a startup failure in waiting, so it is reported rather than silently defaulted.
+func envDuration(name string, fallback time.Duration) time.Duration {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		slog.Warn("ignoring unreadable duration", "variable", name, "value", value, "default", fallback)
+		return fallback
+	}
+	return parsed
 }
 
 // envOr returns the environment variable, or fallback when it is unset or empty.
@@ -67,11 +93,32 @@ func run() error {
 	}
 	slog.Info("connected to PostgreSQL")
 
-	api := &API{store: &Store{db: pool}}
+	store := &Store{db: pool}
+	api := &API{store: store}
+
+	// A service that cannot sign cannot authenticate anyone, so a missing or unreadable key
+	// stops startup rather than failing the first sign-in.
+	if cfg.privateKeyPEM == "" {
+		return fmt.Errorf("JWT_PRIVATE_KEY is not set; `make keys` makes a development key pair")
+	}
+	tokens, err := newSigner(cfg.privateKeyPEM, cfg.keyID, cfg.accessTokenTTL)
+	if err != nil {
+		return fmt.Errorf("JWT_PRIVATE_KEY: %w", err)
+	}
+	auth := &AuthAPI{
+		store:           store,
+		signer:          tokens,
+		sessionLifetime: cfg.sessionLifetime,
+		clock:           func() time.Time { return time.Now().UTC() },
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth)
 	mux.HandleFunc("GET /readyz", api.handleReady)
+
+	mux.HandleFunc("POST /auth/sign-in", auth.signIn)                 // authenticateMember()
+	mux.HandleFunc("POST /auth/refresh", auth.refresh)                // the next pair of tokens
+	mux.HandleFunc("POST /auth/change-password", auth.changePassword) // changePassword()
 
 	mux.HandleFunc("GET /members", api.listMembers)                     // listMembers()
 	mux.HandleFunc("GET /members/{id}", api.getMember)                  // getMember()

@@ -52,6 +52,7 @@ place that tracks which parts of an earlier record no longer hold.
 | **ADR-006** | All of it. | — |
 | **ADR-007** | All of it. | — |
 | **ADR-008** | All of it. | — |
+| **ADR-009** | All of it. Still *Proposed* — it asks the gateway and the services behind it to verify tokens themselves. The gateway now does, so only the services' half is outstanding. | — |
 
 ## Candidate decisions
 
