@@ -147,9 +147,11 @@ Three things worth knowing:
   again is `regenerate`, so a stray click cannot throw away what the Recruiter has edited.
 - **An edited guide carries no model attribution.** The questions are partly the Recruiter's,
   and naming a model as their author would be false.
-- **The profile is read, never copied.** Only the skills and the resume text are taken, not the
-  candidate's name or email: a guide is built from what someone can be asked about, and a copy
-  here would be a second place their data must be erased from.
+- **The profile is read, never copied.** The skills, the work history, the education and the
+  leftover resume text are taken; the candidate's name and email address are not. A guide is
+  built from what someone can be asked about, and a copy here would be a second place their
+  data must be erased from. A profile created by hand has no structured fields, so its whole
+  resume text is used instead.
 
 ### Regenerating the AI Service client
 
