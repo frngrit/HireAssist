@@ -22,17 +22,20 @@ The course requires **at least 3 ADRs** as part of the project proposal submissi
 | [ADR-007](ADR-007-grpc-for-the-ai-service.md) | gRPC on the AI Service boundary | Accepted | 2026-09-20 |
 | [ADR-008](ADR-008-profile-extraction-is-a-model-call.md) | Turning a resume into a candidate profile is a model call | Accepted | 2026-10-01 |
 | [ADR-009](ADR-009-jwt-with-refresh-tokens.md) | Short-lived JWT access tokens with rotating refresh tokens | **Proposed** | 2026-09-24 |
+| [ADR-010](ADR-010-refresh-token-cookie-at-the-gateway.md) | The gateway keeps the web application's refresh token in an HttpOnly cookie | Accepted | 2026-10-17 |
 
 The four are best read in order: ADR-001 draws the boundaries, ADR-002 fills in the busiest one,
 ADR-003 says what each side stores, and ADR-004 fills in the dependency the others are built to
 survive. ADR-002 and ADR-004 are a deliberate pair — running without a fallback model is only
 acceptable because no accepted work is lost (NFR-10).
 
-Five candidates identified on 2026-09-11 have since been answered and removed from the list
-below, which now holds eleven — two of them raised by ADR-008. The five answered were: the
-model-provider question by ADR-004; work-queue topology, worker scaling and delivery guarantee by
-ADR-002; the scorer boundary by ADR-001 and ADR-004, with per-criterion evidence persistence by
-ADR-003; service discovery by ADR-001; and the datastore split by ADR-003.
+Six candidates have since been answered and removed from the list below, which now holds ten —
+two of them raised by ADR-008. Five were answered by records: the model-provider question by
+ADR-004; work-queue topology, worker scaling and delivery guarantee by ADR-002; the scorer boundary
+by ADR-001 and ADR-004, with per-criterion evidence persistence by ADR-003; service discovery by
+ADR-001; and the datastore split by ADR-003. The sixth, the front-end framework, was settled on
+2026-10-16 by its owner under ADR-005 when the web application was built: React and TypeScript, a
+single-page app that talks only to the gateway.
 
 ---
 
@@ -52,7 +55,8 @@ place that tracks which parts of an earlier record no longer hold.
 | **ADR-006** | All of it. | — |
 | **ADR-007** | All of it. | — |
 | **ADR-008** | All of it. | — |
-| **ADR-009** | The token mechanism, the lifetimes, the rotation and reuse rules, and verification at the gateway, which is implemented. Still *Proposed*. | Its requirement that every service acting on the role verify the token itself is **not being implemented**: verification stays at the gateway, and the services are reachable only on the deployment's private network. That reverses ADR-001's position that enforcement cannot live at the gateway alone, so it needs a record of its own, which does not exist yet. |
+| **ADR-009** | The token mechanism, the lifetimes, the rotation and reuse rules, and verification at the gateway, which is implemented. Still *Proposed*. | Its requirement that every service acting on the role verify the token itself is **not being implemented**: verification stays at the gateway, and the services are reachable only on the deployment's private network. That reverses ADR-001's position that enforcement cannot live at the gateway alone, so it needs a record of its own, which does not exist yet. The question it left to the web application and the gateway — where a browser keeps the refresh token — is answered by ADR-010: an HttpOnly cookie the gateway sets. |
+| **ADR-010** | All of it. | — |
 
 ## Candidate decisions
 
@@ -67,7 +71,6 @@ Identified from the architecturally significant requirements in
 | Character recognition for scanned resumes, which neither extraction path handles | ADR-008 |
 | Erasure cascade — orchestration or choreography, and how the verification pass works across the two stores ADR-003 introduced | FR-5.3, FR-5.8, NFR-13 |
 | Resume ingestion channel — upload only, or an automated adapter | Open question |
-| Front-end framework and the shape of the recruiter-facing web application | Course requirement (UI for demonstration), NFR-16 |
 | Session and token mechanism for UC-0 | FR-0.1, FR-0.2, FR-0.4 |
 | Deployment and upgrade pipeline for N customer instances | ADR-006 |
 | Scheduler shared by UC-4 and UC-5 — where the timer runs, behaviour with more than one replica, resuming a sweep that dies half-way | FR-4.2, FR-5.2 |

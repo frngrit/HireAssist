@@ -42,6 +42,7 @@ Term project for **Software Architecture**, Chulalongkorn University.
 | [services/hiring/](services/hiring/) | **Code.** The Hiring Service — Go, PostgreSQL and MongoDB, REST with an OpenAPI contract. Job openings (UC-1) and interview guides (UC-3); proposing criteria with AI is not built yet. |
 | [services/gateway/](services/gateway/) | **Code.** The API Gateway — Go. Routing, local token verification (ADR-009), the role gate and rate limiting. |
 | [proto/](proto/) | Shared gRPC contracts. Callers generate clients from these. |
+| [services/web/](services/web/) | **Code.** The HireAssist Web UI — React, TypeScript, Mantine. Sign-in and UC-1 to UC-3. Runs on a mock backend, or against the gateway for sign-in, job openings and interview guides. |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | Runtime view — what each service owns, who calls whom, and the call sequence behind each use case. |
 | `docs/build-proposal-docx.py`, `docs/adr/build-docx.py` | Build the two Word deliverables. The documents themselves are generated, not committed. |
 | [docs/CONTEXT.md](docs/CONTEXT.md) | Internal working notes — open questions, open decisions, glossary. Not for submission. |
@@ -81,13 +82,16 @@ index and the decisions not yet taken in [`docs/adr/INDEX.md`](docs/adr/INDEX.md
 
 **Documentation, plus four services in progress:** the AI Service, the Identity Service, the
 Hiring Service and the API Gateway, each listed in the table above with its own README.
-`docker compose up --build` at the root runs the gateway and the Hiring Service with its
-PostgreSQL and MongoDB; the Identity Service still has its own compose file.
+`docker compose up -d --build` at the root runs the whole system: the web app on
+http://localhost:4173, the gateway, the Identity, Hiring, Resume Processing and AI services
+(the AI Service with canned answers, so no API key is needed), PostgreSQL, MongoDB, RabbitMQ
+and S3 storage. The comments at the top of `docker-compose.yml` list the demo sign-ins and the
+variables that move a host port that is already taken.
 
 The repository is a monorepo. Services live at `services/<name>/` and shared gRPC contracts at
 `proto/`. That layout was settled by starting implementation and still needs an ADR. Each
 service's language is its owner's choice under ADR-005, which is still *Proposed*. The gateway
-has no owner yet (ADR-005 rule 5), and it is written rather than configured from an off-the-shelf
+is owned by the whole team jointly (ADR-005 rule 5), and it is written rather than configured from an off-the-shelf
 gateway because ADR-009 asks it to verify tokens itself and to record a rejected request — Go for
 consistency with the two services it fronts.
 
@@ -95,8 +99,8 @@ consistency with the two services it fronts.
 hire-assist/
 ├── README.md
 ├── .gitignore
-├── docker-compose.yml       # local stack: gateway + Hiring Service + PostgreSQL + MongoDB
-├── deploy/                  # container support files (database init)
+├── docker-compose.yml       # local stack: every service, datastore and the broker
+├── deploy/                  # container support files (database init, development signing keys)
 ├── proto/                   # shared gRPC contracts
 ├── services/
 │   ├── ai-service/          # AI Service (Python, gRPC)

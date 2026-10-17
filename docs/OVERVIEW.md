@@ -26,7 +26,8 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 - **Owns** — nothing. No schema, no store.
 - **Does** — terminates TLS, verifies the access token's signature and expiry itself against the
   Identity Service's public key, resolves the caller's role from it, rate-limits, routes. Rejects
-  any request exceeding the caller's role.
+  any request exceeding the caller's role. For the web application, keeps the refresh token in an
+  HttpOnly cookie and clears it on sign-out ([ADR-010](adr/ADR-010-refresh-token-cookie-at-the-gateway.md)).
 - **Called by** — the recruiter-facing web application. The only public entry point for user
   traffic; the System Scheduler is an internal trigger and does not pass through it.
 - **Calls** — no one to check a token: verification is local
@@ -107,11 +108,13 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 
 ```
 Browser → Gateway → Identity.authenticateMember()
-                  ← session token
+                  ← access token, refresh token
+        ← access token; refresh token as an HttpOnly cookie
 ```
 
-Every later request carries that token. The Gateway verifies it locally and reads the role from
-it, with no call to Identity (ADR-009); an expired one is renewed through `POST /auth/refresh`. A
+Every later request carries the access token. The Gateway verifies it locally and reads the role
+from it, with no call to Identity (ADR-009); an expired one is renewed through
+`POST /auth/refresh`, where the Gateway hands Identity the token from the cookie (ADR-010). A
 request above the caller's role stops at the Gateway, which calls
 `Compliance.recordAuthorisationRejected()` for the access audit log.
 

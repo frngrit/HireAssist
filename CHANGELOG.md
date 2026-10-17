@@ -15,6 +15,17 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-17 15:46 — Web UI on a mock backend; front-end framework settled
+
+- **Front-end framework settled** by its owner under ADR-005: React and TypeScript, a single-page app that talks only to the gateway. A browser leaves no language choice, so TypeScript needs no further reason under ADR-005 rule 6. Next.js was rejected because its own server would be a second backend beside the gateway. Removed from CONTEXT's open decisions and the ADR index's candidates.
+- **The web app calls every API under `/api`**, and whatever serves the app strips the prefix before the gateway. Without it, a page route like `/job-openings/{id}` collides with the API path of the same name, and a reload reaches the Hiring Service instead of the app. The gateway's own routes are unchanged.
+- **ADR-010 (Accepted): the refresh token is an HttpOnly cookie set by the gateway**, answering what ADR-009 left to the web app and the gateway — a script cannot set such a cookie, and the Identity Service deliberately returns the token in the body. Opt-in per request, so Postman and other API clients keep the body; signing out clears the cookie but does not revoke the token, since the Identity Service has no sign-out. The runtime view and the SOC table now show the gateway doing it. Takes the number the broker record was expected to have; that record takes the next.
+- **Sign-in, job openings and interview guides use the services' real contracts**, and the app works against the gateway for them. The proposal, screening batches, ranked results and candidate endpoints are not served yet: the app proposes their shapes, mocked in the browser and listed in `services/web/README.md` for Hiring's owner to confirm or change.
+- **The gateway is owned by the whole team jointly**, which closes the ADR-005 rule 5 gap the last two entries left open. Every member already touches it — its routes front every service — so naming one person would not match how it is worked on; the cost is that no single person is accountable for it.
+- Outstanding: Hiring to confirm the proposed UC-1/UC-2 endpoints.
+
+---
+
 ## 2026-10-17 15:40 — Token checks stay at the gateway; interview notes complete UC-3
 
 - **The services behind the gateway will not verify tokens.** The gateway checks every request

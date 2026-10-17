@@ -74,8 +74,6 @@ Each of these should become an ADR, or be folded into one, before implementation
 - [ ] **Session and token mechanism for UC-0**, and how the role travels on internal REST calls.
       ADR-001 requires that it does, and says enforcement cannot live only at the gateway — but
       not how.
-- [ ] **Front-end framework** and the shape of the recruiter-facing web application. The course
-      requires a UI for the demonstration; nothing else about it is settled.
 - [ ] **Repository structure** once implementation starts — monorepo layout, and where the shared
       OpenAPI definitions live.
 - [x] ~~Which quality attribute we demonstrate~~ → **Scalability** (NFR-07); how it is delivered

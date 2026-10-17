@@ -17,7 +17,8 @@ and resolves the caller's role from the access token, whose signature and expiry
 itself against the Identity Service's public key rather than by calling the Identity Service on
 every request (**ADR-009**, now implemented at the gateway). It rejects any request exceeding the
 caller's role and calls `Compliance & Insights Service.recordAuthorisationRejected()` for the
-access audit log. It owns no data.
+access audit log. For the web application it keeps the refresh token in an HttpOnly cookie, and
+serves the sign-out that clears it (**ADR-010**). It owns no data.
 
 It is also the **only** place a token is checked: the services behind it do not verify what they
 receive, because the deployment keeps them on a private network. That decision is not recorded
