@@ -76,7 +76,7 @@ Everything in the mock data is synthetic. Never put a real resume in the demo (P
 
 ## Sessions
 
-ADR-009 asks for the refresh token to be kept where scripts cannot read it, and ADR-010 has the
+ADR-009 asks for the refresh token to be kept where scripts cannot read it, and ADR-012 has the
 gateway do it. The app asks the gateway for that with the `X-Refresh-Token-Transport: cookie` header on sign-in and refresh: the
 gateway moves the token into an HttpOnly cookie, and the app's code never sees it. The access
 token lives in memory only, so a reload or a new tab gets a fresh one with the cookie. How the

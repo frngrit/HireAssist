@@ -6,10 +6,9 @@ Owns the **members** of one HireAssist installation and their roles: UC-0 (sign 
 **Status:** member CRUD and signing in work. Signing in issues the tokens ADR-009 describes, and
 the gateway verifies them.
 
-**This service checks no token itself, by decision.** Verification lives at the gateway alone,
-on the assumption that the services sit on a private network — so `/members` is open to anything
-that can reach port 8081. Publish the gateway and nothing else. The decision reverses part of
-ADR-009 and of ADR-001 and still needs an ADR of its own.
+**This service checks no token itself, by decision (ADR-010).** Verification lives at the
+gateway alone, on the assumption that the services sit on a private network — so `/members` is
+open to anything that can reach port 8081. Publish the gateway and nothing else.
 
 | | |
 |---|---|

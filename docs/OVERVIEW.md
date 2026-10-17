@@ -27,17 +27,17 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 - **Does** — terminates TLS, verifies the access token's signature and expiry itself against the
   Identity Service's public key, resolves the caller's role from it, rate-limits, routes. Rejects
   any request exceeding the caller's role. For the web application, keeps the refresh token in an
-  HttpOnly cookie and clears it on sign-out ([ADR-010](adr/ADR-010-refresh-token-cookie-at-the-gateway.md)).
+  HttpOnly cookie and clears it on sign-out ([ADR-012](adr/ADR-012-refresh-token-cookie-at-the-gateway.md)).
 - **Called by** — the recruiter-facing web application. The only public entry point for user
   traffic; the System Scheduler is an internal trigger and does not pass through it.
 - **Calls** — no one to check a token: verification is local
   ([ADR-009](adr/ADR-009-jwt-with-refresh-tokens.md)), and the token is forwarded unchanged.
   `Compliance.recordAuthorisationRejected()` on every rejection; routes onward to Identity,
   Hiring, Compliance and Resume Processing. Never the AI Service.
-- **It is the only place a token is checked.** The services behind it do not verify what they
-  receive, on the assumption that they are reachable only on the deployment's private network.
-  That decision reverses ADR-001's position that enforcement cannot live at the gateway alone,
-  and has no record of its own yet.
+- **It is the only place a token is checked**
+  ([ADR-010](adr/ADR-010-verification-at-the-gateway-only.md)). The services behind it do not
+  verify what they receive, on the assumption that they are reachable only on the deployment's
+  private network — which is why nothing but the gateway may be published.
 
 ### Identity Service
 
@@ -52,9 +52,8 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
 ### Hiring Service
 
 - **Owns** — PostgreSQL: job openings, criteria, screening batches and per-entry status, scores,
-  overrides, shortlist decisions. MongoDB: interview guides, in a database of its own.
-  *(ADR-003 places AI-derived documents in MongoDB, which is otherwise Resume Processing's
-  store; Hiring having its own is how that was implemented, and is still unrecorded.)*
+  overrides, shortlist decisions. MongoDB: interview guides, in a database of its own
+  ([ADR-011](adr/ADR-011-hiring-document-store.md)).
 - **Does** — holds the entire recruiter-facing hiring record: openings and their criteria, batch
   acceptance and per-resume handover, the ranked list, overrides, shortlisting, interview guides.
 - **Called by** — the Gateway; Resume Processing, calling `reportScreeningResult()` back;
@@ -115,7 +114,7 @@ Browser → Gateway → Identity.authenticateMember()
 
 Every later request carries the access token. The Gateway verifies it locally and reads the role
 from it, with no call to Identity (ADR-009); an expired one is renewed through
-`POST /auth/refresh`, where the Gateway hands Identity the token from the cookie (ADR-010). A
+`POST /auth/refresh`, where the Gateway hands Identity the token from the cookie (ADR-012). A
 request above the caller's role stops at the Gateway, which calls
 `Compliance.recordAuthorisationRejected()` for the access audit log.
 

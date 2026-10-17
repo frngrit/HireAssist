@@ -1,4 +1,4 @@
-# ADR-010: The gateway keeps the web application's refresh token in an HttpOnly cookie
+# ADR-012: The gateway keeps the web application's refresh token in an HttpOnly cookie
 
 **Date:** 2026-10-17
 **Deciders:** the whole team, who jointly own the gateway; written by Rerngrit Jangsri (web

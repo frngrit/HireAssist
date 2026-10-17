@@ -37,7 +37,7 @@ a gateway that exposes the next service somebody adds.
 
 ## The web app's refresh cookie
 
-ADR-010: ADR-009 asks the web app to keep the refresh token where scripts cannot
+ADR-012: ADR-009 asks the web app to keep the refresh token where scripts cannot
 read it. The Identity Service returns it in the response body and leaves where it is kept to the
 web app and the gateway; a script cannot set an HttpOnly cookie, so the gateway does
 (`session_cookie.go`).
@@ -68,12 +68,11 @@ keys. It checks the ES256 signature and the expiry **itself** and never calls th
 Service to check a token — not per request, not at startup. The token is then forwarded
 unchanged, so a service behind it can read who the caller is.
 
-**The gateway is the only place a token is checked.** ADR-009 asks the services behind it to
-verify what they receive as well; the team has decided against that, on the assumption that the
-services are reachable only on the deployment's private network. That decision reverses part of
-two accepted records and still needs an ADR of its own. What follows from it is operational:
-nothing but the gateway may be published, because anything that can reach the Hiring or Identity
-Service directly is already past every access check in the system.
+**The gateway is the only place a token is checked (ADR-010).** ADR-009 asked the services
+behind it to verify what they receive as well; ADR-010 withdraws that, on the assumption that the
+services are reachable only on the deployment's private network. What follows from it is
+operational: nothing but the gateway may be published, because anything that can reach the Hiring
+or Identity Service directly is already past every access check in the system.
 
 Only ES256 is accepted. A token that names its own algorithm is how a verifier gets talked into
 accepting `none`, and there is a test for exactly that.

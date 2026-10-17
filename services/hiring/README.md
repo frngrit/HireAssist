@@ -14,7 +14,7 @@ The recruiter-facing hiring record, in three slices:
 | Store or peer | What for | Reached through |
 |---|---|---|
 | PostgreSQL | job openings, criteria, batches and their criteria snapshots, scores, overrides, shortlists (ADR-003) | `pgx` |
-| MongoDB | interview guides, an AI-derived document (ADR-003) | the MongoDB driver |
+| MongoDB | interview guides, an AI-derived document (ADR-003), in a database of this service's own (ADR-011) | the MongoDB driver |
 | Object storage (MinIO) | the resume files | `minio-go`, S3 API |
 | RabbitMQ | the screening handover to and from Resume Processing | `amqp091-go` |
 | AI Service | proposals (UC-1) and interview questions (UC-3) | gRPC, client generated from `/proto` (ADR-007) |
