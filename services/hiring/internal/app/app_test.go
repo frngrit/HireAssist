@@ -1,8 +1,10 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -118,5 +120,62 @@ func TestNew_UnreachableDatabaseFailsStartup(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("app.New succeeded against an unreachable database")
+	}
+}
+
+// UC-2 through the wired service, in memory with no broker: a batch is accepted at once and
+// waits, pending, to be screened; and with no AI Service, proposing says so (FR-1.5).
+func TestAssembledService_ScreeningWithoutABroker(t *testing.T) {
+	handler, closeService, err := app.New(context.Background(), app.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeService()
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	created, err := http.Post(srv.URL+"/job-openings", "application/json", strings.NewReader(`{
+		"title": "Backend Engineer",
+		"criteria": [{"name": "3+ years of Go", "classification": "must-have", "weight": 5}],
+		"expected_time_to_fill_days": 30
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created.Body.Close()
+	opening := created.Header.Get("Location")
+
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, _ := form.CreateFormFile("resumes", "ploy.pdf")
+	_, _ = part.Write([]byte("%PDF-1.7\n%%EOF"))
+	_ = form.Close()
+	submitted, err := http.Post(srv.URL+opening+"/batches", form.FormDataContentType(), &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitted.Body.Close()
+	if submitted.StatusCode != http.StatusAccepted || !strings.Contains(submitted.Header.Get("Location"), "/batches/sb_") {
+		t.Fatalf("submit = %d, Location %q", submitted.StatusCode, submitted.Header.Get("Location"))
+	}
+
+	results, err := http.Get(srv.URL + opening + "/results")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer results.Body.Close()
+	var got struct{ Pending int }
+	_ = json.NewDecoder(results.Body).Decode(&got)
+	if results.StatusCode != http.StatusOK || got.Pending != 1 {
+		t.Errorf("results = %d, pending %d", results.StatusCode, got.Pending)
+	}
+
+	proposed, err := http.Post(srv.URL+"/job-openings/propose", "application/json", strings.NewReader(`{"description": "Backend engineer"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposed.Body.Close()
+	if proposed.StatusCode != http.StatusBadGateway {
+		t.Errorf("propose without an AI Service = %d, want 502", proposed.StatusCode)
 	}
 }

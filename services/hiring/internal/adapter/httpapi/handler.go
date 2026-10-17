@@ -1,5 +1,6 @@
-// Package httpapi is the REST adapter for the Hiring Service's job opening operations.
-// It translates HTTP to use case calls and business errors to status codes; it holds no rules.
+// Package httpapi is the REST adapter for the Hiring Service's operations: job openings (UC-1),
+// screening (UC-2) and interview guides (UC-3). It translates HTTP to use case calls and
+// business errors to status codes; it holds no rules.
 package httpapi
 
 import (
@@ -25,27 +26,60 @@ type JobOpenings interface {
 	CloseOpening(ctx context.Context, id string, outcome domain.Outcome) (*domain.JobOpening, error)
 }
 
+// Proposals is the use case port behind proposeJobOpening().
+type Proposals interface {
+	ProposeJobOpening(ctx context.Context, description string, language domain.Language) (*domain.JobOpeningProposal, error)
+}
+
+// Screening is the use case port behind the screening endpoints (UC-2).
+type Screening interface {
+	SubmitScreeningBatch(ctx context.Context, openingID string, files []usecase.UploadedFile) (*domain.ScreeningBatch, []usecase.RejectedFile, error)
+	GetBatchStatus(ctx context.Context, openingID, batchID string) (*domain.ScreeningBatch, error)
+	GetRankedResults(ctx context.Context, openingID string, f domain.RankFilter) (*usecase.Results, error)
+	GetScreeningResult(ctx context.Context, openingID, resumeID string) (*usecase.ScreenedCandidate, error)
+	OverrideScore(ctx context.Context, openingID, resumeID string, score int) (*domain.Ranked, error)
+	ShortlistCandidate(ctx context.Context, openingID, resumeID string) (*domain.Ranked, error)
+}
+
+// Services are the use cases the handler drives.
+type Services struct {
+	JobOpenings     JobOpenings
+	Proposals       Proposals
+	Screening       Screening
+	InterviewGuides InterviewGuides
+}
+
 const (
 	day          = 24 * time.Hour
 	maxBodyBytes = 1 << 20
 )
 
 type handler struct {
-	svc    JobOpenings
-	guides InterviewGuides
+	svc       JobOpenings
+	proposals Proposals
+	screening Screening
+	guides    InterviewGuides
 }
 
-// NewHandler routes the endpoints to the injected use cases.
-func NewHandler(svc JobOpenings, guides InterviewGuides) http.Handler {
-	h := handler{svc: svc, guides: guides}
+// NewHandler routes the endpoints to the injected use cases. Every path sits under
+// /job-openings, the one prefix the Gateway routes to this service.
+func NewHandler(s Services) http.Handler {
+	h := handler{svc: s.JobOpenings, proposals: s.Proposals, screening: s.Screening, guides: s.InterviewGuides}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /job-openings", h.create)
 	mux.HandleFunc("GET /job-openings", h.list)
+	mux.HandleFunc("POST /job-openings/propose", h.propose)
 	mux.HandleFunc("GET /job-openings/{id}", h.get)
 	mux.HandleFunc("PUT /job-openings/{id}/criteria", h.reviseCriteria)
 	mux.HandleFunc("POST /job-openings/{id}/pause", h.pause)
 	mux.HandleFunc("POST /job-openings/{id}/resume", h.resume)
 	mux.HandleFunc("POST /job-openings/{id}/close", h.close)
+	mux.HandleFunc("POST /job-openings/{id}/batches", h.submitBatch)
+	mux.HandleFunc("GET /job-openings/{id}/batches/{batchId}", h.batchStatus)
+	mux.HandleFunc("GET /job-openings/{id}/results", h.rankedResults)
+	mux.HandleFunc("GET /job-openings/{id}/results/{resumeId}", h.screeningResult)
+	mux.HandleFunc("POST /job-openings/{id}/results/{resumeId}/override", h.overrideScore)
+	mux.HandleFunc("POST /job-openings/{id}/results/{resumeId}/shortlist", h.shortlist)
 
 	// UC-3, under the opening the guide is for.
 	const guidePath = "/job-openings/{id}/candidates/{candidateId}/interview-guide"
@@ -204,18 +238,30 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 // writeError maps business errors to status codes. Anything unexpected is logged and
-// reported as 500 without detail, so infrastructure internals never reach the browser.
+// reported as 500 without detail, so infrastructure internals never reach the browser. A
+// service this one depends on failing is 502, whichever service it is.
 func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, usecase.ErrNotFound),
+		errors.Is(err, usecase.ErrBatchNotFound),
+		errors.Is(err, usecase.ErrResumeNotFound),
 		errors.Is(err, usecase.ErrGuideNotFound),
 		errors.Is(err, usecase.ErrCandidateNotFound),
 		errors.Is(err, domain.ErrQuestionNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
-	case errors.Is(err, domain.ErrInvalidJobOpening), errors.Is(err, domain.ErrInvalidInterviewGuide):
+	case errors.Is(err, domain.ErrInvalidJobOpening),
+		errors.Is(err, domain.ErrInvalidScreening),
+		errors.Is(err, domain.ErrInvalidInterviewGuide):
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 	case errors.Is(err, domain.ErrInvalidTransition), errors.Is(err, usecase.ErrGuideExists):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+	case errors.Is(err, usecase.ErrAIUnavailable):
+		// Proposing needs the AI Service; without it the Recruiter enters criteria by hand.
+		slog.Error("AI Service unavailable", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": usecase.ErrAIUnavailable.Error()})
+	case errors.Is(err, usecase.ErrStorageUnavailable):
+		slog.Error("resume storage unavailable", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": usecase.ErrStorageUnavailable.Error()})
 	case errors.Is(err, usecase.ErrUpstreamUnavailable):
 		// The Resume Processing Service or the AI Service could not answer. It is their
 		// failure, not a bad request, and an empty guide would hide it.

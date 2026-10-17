@@ -50,15 +50,16 @@ what it shows.*
 | **System Scheduler** | UC-4 staleness checks and UC-5 retention evaluation, on a timer | calls Compliance & Insights directly; no UI |
 | *Candidate* | nothing — an indirect actor with no interface | their resume arrives as a file the Recruiter uploads; not drawn |
 
-Signing in (UC-0) is not a business use case. A Guest signs in through the gateway, which asks the
-Identity Service to validate the session on every later request. The Identity Service is drawn
-because the table lists it, but it is connected only to the gateway — no other service calls it.
+Signing in (UC-0) is not a business use case. A Guest signs in through the gateway and receives a
+signed access token, which the gateway verifies itself on every later request without asking the
+Identity Service (ADR-009). The Identity Service is drawn because the table lists it, but it is
+connected only to the gateway — no other service calls it.
 
 ## Services and what each owns
 
 | Service | Business capability | Use cases | Owns (private store) |
 |---|---|---|---|
-| **API Gateway** | Single entry point for user traffic: TLS, session validation, rate limiting, routing. The System Scheduler is an internal trigger and does not pass through it | — | nothing |
+| **API Gateway** | Single entry point for user traffic: TLS, access-token verification, rate limiting, routing. The System Scheduler is an internal trigger and does not pass through it | — | nothing |
 | **Identity Service** | Who may sign in and with which role | UC-0, UC-6 | PostgreSQL — members, their roles, sessions |
 | **Hiring Service** | The hiring record: openings and criteria, screening batches and their results, shortlist decisions, interview guides | UC-1, UC-2, UC-3 | PostgreSQL — job openings, criteria, batches and per-entry status, scores and overrides, shortlist decisions; MongoDB — interview guides |
 | **Resume Processing Service** | Turning one resume file into a scored candidate profile | UC-2 (per-resume work) | PostgreSQL — the screening work table, candidate identity, collection date; MongoDB — candidate profiles, parsed text, per-criterion scoring output and justifications |

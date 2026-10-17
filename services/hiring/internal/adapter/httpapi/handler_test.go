@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,7 +34,17 @@ func (stubProfiles) GetCandidateProfile(_ context.Context, candidateID string) (
 	return domain.CandidateProfile{CandidateID: candidateID, Skills: []string{"Go", "Kubernetes"}}, nil
 }
 
-// stubGenerator stands in for the AI Service.
+// stubJustifications stands in for the same service's justification of a score (UC-2).
+type stubJustifications struct{}
+
+func (stubJustifications) GetJustification(_ context.Context, candidateID, _, _ string) (domain.Justification, error) {
+	return domain.Justification{
+		Text:     "Six years of Go at two companies, for " + candidateID + ".",
+		Evidence: []domain.CriterionEvidence{{Criterion: 0, Met: true, Score: 90, Evidence: "Go at Wongnai and LINE MAN"}},
+	}, nil
+}
+
+// stubGenerator stands in for the AI Service's interview questions.
 type stubGenerator struct{}
 
 func (stubGenerator) GenerateInterviewQuestions(_ context.Context, _ domain.CandidateProfile, criteria []domain.Criterion, _ string) ([]domain.Question, domain.ModelAttribution, error) {
@@ -47,28 +58,102 @@ func (stubGenerator) GenerateInterviewQuestions(_ context.Context, _ domain.Cand
 		nil
 }
 
+// stubDeriver stands in for the AI Service's proposals: it proposes from any description, or
+// fails with err.
+type stubDeriver struct{ err error }
+
+func (d stubDeriver) DeriveCriteria(context.Context, string, domain.Language) (*domain.JobOpeningProposal, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
+	return &domain.JobOpeningProposal{
+		Title: "Backend Engineer",
+		Criteria: []domain.Criterion{
+			{Name: "3+ years of Go or Python", Classification: domain.MustHave, Weight: 1},
+			{Name: "Kafka or RabbitMQ in production", Classification: domain.NiceToHave, Weight: 3},
+		},
+		Uninterpreted: []string{"English good enough for a standup"},
+		Attribution:   domain.ModelAttribution{Provider: "canned", Model: "canned-answers-no-model-was-called", PromptVersion: "v1"},
+	}, nil
+}
+
+// acceptingBroker takes every screening request.
+type acceptingBroker struct{}
+
+func (acceptingBroker) RequestScreening(context.Context, *domain.ScreeningBatch, *domain.ScreeningEntry) error {
+	return nil
+}
+
 type guideID struct{}
 
 func (guideID) NewID() string { return "ig-1" }
 
-func newServer() http.Handler {
-	return assemble(stubProfiles{}, stubGenerator{})
+type sequentialScreeningIDs struct{ batches, resumes int }
+
+func (g *sequentialScreeningIDs) NewBatchID() string {
+	g.batches++
+	return fmt.Sprintf("sb-%d", g.batches)
 }
 
+func (g *sequentialScreeningIDs) NewResumeID() string {
+	g.resumes++
+	return fmt.Sprintf("rs-%d", g.resumes)
+}
+
+// serverOptions replaces one stand-in; the zero value uses them all.
+type serverOptions struct {
+	deriver   usecase.CriteriaDeriver   // default stubDeriver{}
+	files     usecase.ResumeStore       // default in memory
+	profiles  usecase.CandidateProfiles // default stubProfiles{}
+	generator usecase.QuestionGenerator // default stubGenerator{}
+}
+
+// testServer is the handler over in-memory adapters, with the screening use case exposed so a
+// test can play Resume Processing and record results.
+type testServer struct {
+	http.Handler
+	screening *usecase.ScreeningService
+}
+
+func newTestServer(opts serverOptions) testServer {
+	if opts.deriver == nil {
+		opts.deriver = stubDeriver{}
+	}
+	if opts.files == nil {
+		opts.files = memory.NewResumeStore()
+	}
+	if opts.profiles == nil {
+		opts.profiles = stubProfiles{}
+	}
+	if opts.generator == nil {
+		opts.generator = stubGenerator{}
+	}
+	openings := memory.NewJobOpeningRepository()
+	screening := usecase.NewScreeningService(usecase.ScreeningDeps{
+		Openings: openings, Batches: memory.NewScreeningRepository(), Files: opts.files,
+		Requester: acceptingBroker{}, Justifications: stubJustifications{}, Clock: fixedClock{}, IDs: &sequentialScreeningIDs{},
+	})
+	guides := usecase.NewInterviewGuideService(
+		memory.NewInterviewGuideRepository(), openings, opts.profiles, opts.generator, fixedClock{}, guideID{})
+	return testServer{
+		Handler: httpapi.NewHandler(httpapi.Services{
+			JobOpenings:     usecase.NewJobOpeningService(openings, fixedClock{}, fixedID{}),
+			Proposals:       usecase.NewProposalService(opts.deriver),
+			Screening:       screening,
+			InterviewGuides: guides,
+		}),
+		screening: screening,
+	}
+}
+
+func newServer() http.Handler { return newTestServer(serverOptions{}) }
+
 func newServerWithGenerator(generator usecase.QuestionGenerator) http.Handler {
-	return assemble(stubProfiles{}, generator)
+	return newTestServer(serverOptions{generator: generator})
 }
 
 func newServerWithProfiles(profiles usecase.CandidateProfiles) http.Handler {
-	return assemble(profiles, stubGenerator{})
-}
-
-func assemble(profiles usecase.CandidateProfiles, generator usecase.QuestionGenerator) http.Handler {
-	openings := memory.NewJobOpeningRepository()
-	svc := usecase.NewJobOpeningService(openings, fixedClock{}, fixedID{})
-	guides := usecase.NewInterviewGuideService(
-		memory.NewInterviewGuideRepository(), openings, profiles, generator, fixedClock{}, guideID{})
-	return httpapi.NewHandler(svc, guides)
+	return newTestServer(serverOptions{profiles: profiles})
 }
 
 const validBody = `{
@@ -265,7 +350,7 @@ func (failingService) ListJobOpenings(context.Context) ([]domain.JobOpening, err
 
 // An unexpected failure is 500 and does not leak infrastructure detail to the browser.
 func TestUnexpectedErrorIs500WithoutDetail(t *testing.T) {
-	rec := do(t, httpapi.NewHandler(failingService{}, failingService{}), http.MethodGet, "/job-openings", "")
+	rec := do(t, httpapi.NewHandler(httpapi.Services{JobOpenings: failingService{}}), http.MethodGet, "/job-openings", "")
 
 	wantStatus(t, rec, http.StatusInternalServerError)
 	if strings.Contains(rec.Body.String(), "10.0.0.5") {

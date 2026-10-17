@@ -12,6 +12,7 @@ owners approve.
 | `screening.completed` | Resume Processing → Hiring | either side | durable, none |
 | `screening.requested.retry` | internal to Resume Processing | Resume Processing | dead-letters back to `screening.requested` |
 | `screening.requested.dlq` | internal to Resume Processing | Resume Processing | durable, none |
+| `screening.completed.dlq` | internal to Hiring | Hiring | durable, none |
 
 - Messages go through the default exchange, routed by queue name.
 - The two shared queues have **no arguments**, so either side may declare them
@@ -76,7 +77,13 @@ An extra field is ignored, so an older sender that still includes it keeps worki
 | `failed` | Gave up: the file is missing, the message is invalid, or the AI Service stayed down through every retry | null | why |
 
 For the per-criterion evidence behind a score, Hiring calls
-`GET /candidates/{candidate_id}` on Resume Processing (REST, see `openapi.yaml`).
+`GET /candidates/{candidate_id}` on Resume Processing (REST, see `openapi.yaml`). Hiring keeps
+the score, the must-have check and the unmet must-haves, and not the justification: that stays
+here, and Hiring reads it when a Recruiter opens the candidate (ADR-003).
+
+A result Hiring can never accept — not JSON, an unknown status, a resume it never sent — is moved
+to `screening.completed.dlq`, with the reason in the `x-refused-because` header. The shared queue
+takes no dead-letter arguments, so Hiring makes the move itself.
 
 ## Retries and dead-lettering (inside Resume Processing)
 

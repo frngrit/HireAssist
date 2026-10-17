@@ -1,4 +1,4 @@
-// Package system provides production implementations of the use case's Clock and IDGenerator.
+// Package system provides production implementations of the use cases' Clock and id ports.
 package system
 
 import (
@@ -12,10 +12,15 @@ type Clock struct{}
 
 func (Clock) Now() time.Time { return time.Now().UTC().Truncate(time.Microsecond) }
 
-// RandomIDs issues 128-bit random job opening ids, prefixed "jo_".
+// RandomIDs issues the ids of the hiring record: "jo_" for job openings, "sb_" for screening
+// batches, "rs_" for resumes.
 type RandomIDs struct{}
 
 func (RandomIDs) NewID() string { return IDs{Prefix: "jo_"}.NewID() }
+
+func (RandomIDs) NewBatchID() string { return IDs{Prefix: "sb_"}.NewID() }
+
+func (RandomIDs) NewResumeID() string { return IDs{Prefix: "rs_"}.NewID() }
 
 // IDs issues 128-bit random identifiers with a prefix naming what they identify, so an id seen
 // in a log or a URL says what it belongs to.

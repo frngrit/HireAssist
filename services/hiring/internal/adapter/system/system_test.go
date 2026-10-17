@@ -55,3 +55,18 @@ func TestRandomIDs_UniqueAndWellFormed(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+var _ usecase.ScreeningIDs = system.RandomIDs{}
+
+// Batch and resume ids follow the same rule, each with its own prefix.
+func TestRandomIDs_BatchAndResumeIDs(t *testing.T) {
+	for prefix, newID := range map[string]func() string{
+		"sb": system.RandomIDs{}.NewBatchID,
+		"rs": system.RandomIDs{}.NewResumeID,
+	} {
+		format := regexp.MustCompile(`^` + prefix + `_[0-9a-f]{32}$`)
+		if a, b := newID(), newID(); !format.MatchString(a) || a == b {
+			t.Errorf("%s ids %q and %q: want two different ids matching %s", prefix, a, b, format)
+		}
+	}
+}
