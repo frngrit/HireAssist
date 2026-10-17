@@ -17,7 +17,13 @@ import (
 func main() {
 	// Configuration comes from the environment (ADR-005 rule 4).
 	addr := ":" + envOr("PORT", "8080")
-	cfg := app.Config{DatabaseURL: os.Getenv("DATABASE_URL")}
+	cfg := app.Config{
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		MongoURL:            os.Getenv("MONGO_URL"),
+		MongoDatabase:       envOr("MONGO_DATABASE", "hiring"),
+		ResumeProcessingURL: os.Getenv("RESUME_PROCESSING_URL"),
+		AIServiceAddress:    os.Getenv("AI_SERVICE_ADDRESS"),
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -30,6 +36,13 @@ func main() {
 	defer closeService()
 	if cfg.DatabaseURL == "" {
 		slog.Warn("DATABASE_URL not set: storing job openings in memory, lost on restart")
+	}
+	if cfg.MongoURL == "" {
+		slog.Warn("MONGO_URL not set: storing interview guides in memory, lost on restart")
+	}
+	if cfg.ResumeProcessingURL == "" || cfg.AIServiceAddress == "" {
+		slog.Warn("UC-3 cannot generate a guide until both services it reads are configured",
+			"resume_processing_url", cfg.ResumeProcessingURL, "ai_service_address", cfg.AIServiceAddress)
 	}
 
 	srv := &http.Server{

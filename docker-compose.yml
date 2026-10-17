@@ -1,5 +1,6 @@
-# Local development stack. `docker compose up --build` runs the Hiring Service against
-# PostgreSQL (ADR-003). Credentials here are for local use only; never reuse them elsewhere.
+# Local development stack. `docker compose up --build` runs the gateway and the Hiring Service
+# against PostgreSQL and MongoDB (ADR-003). Credentials here are for local use only; never
+# reuse them elsewhere.
 name: hireassist
 
 services:
@@ -20,15 +21,37 @@ services:
       timeout: 3s
       retries: 15
 
+  # Interview guides are AI-derived documents, so ADR-003 puts them here rather than beside
+  # the hiring record in PostgreSQL.
+  mongo:
+    image: mongo:7
+    ports:
+      - "${MONGO_PORT:-27017}:27017"   # set MONGO_PORT if 27017 is taken
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
   hiring:
     build: ./services/hiring
     environment:
       PORT: "8080"
       DATABASE_URL: postgres://hireassist:hireassist@postgres:5432/hiring?sslmode=disable
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DATABASE: hiring
+      # UC-3 reads a candidate profile from one service and asks another for the questions.
+      # Neither is in this compose file yet; until they are, generating a guide answers 502.
+      RESUME_PROCESSING_URL: "${RESUME_PROCESSING_URL:-}"
+      AI_SERVICE_ADDRESS: "${AI_SERVICE_ADDRESS:-}"
     ports:
       - "8080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
 
   gateway:
@@ -48,3 +71,4 @@ services:
 
 volumes:
   postgres-data:
+  mongo-data:

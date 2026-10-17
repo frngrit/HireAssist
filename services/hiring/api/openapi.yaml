@@ -1,10 +1,11 @@
 openapi: 3.0.3
 info:
-  title: Hiring Service — Job Openings
-  version: 0.1.0
+  title: Hiring Service — Job Openings and Interview Guides
+  version: 0.2.0
   description: |
-    The Hiring Service's job opening operations (UC-1). This document is the contract
-    (ADR-005 rule 1): the server is tested against it, and clients are generated from it.
+    The Hiring Service's job opening operations (UC-1) and interview guides (UC-3). This
+    document is the contract (ADR-005 rule 1): the server is tested against it, and clients
+    are generated from it.
 
     Lifecycle transitions (pause, resume, close) are POST actions, not PUT or PATCH on a status
     field: each is a rule-bound business event that is not idempotent (a repeat is 409), and
@@ -20,6 +21,7 @@ servers:
   - url: /
 tags:
   - name: Job openings
+  - name: Interview guides
   - name: Operations
 
 paths:
@@ -172,6 +174,110 @@ paths:
         '422': { $ref: '#/components/responses/BusinessRuleViolated' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /job-openings/{id}/candidates/{candidateId}/interview-guide:
+    parameters:
+      - $ref: '#/components/parameters/JobOpeningId'
+      - $ref: '#/components/parameters/CandidateId'
+    post:
+      operationId: generateInterviewGuide
+      tags: [Interview guides]
+      summary: Generate the interview guide for one candidate against this opening
+      description: |
+        UC-3, FR-3.1. Reads the candidate's profile from the Resume Processing Service and asks
+        the AI Service for questions covering resume claims, must-have gaps and role depth
+        (FR-3.2), each tagged with the criterion it tests and the evidence it came from
+        (FR-3.3). The guide is retained, so it can be reopened before the interview.
+
+        A candidate has one guide per opening. When one exists this answers 409: asking the
+        model again is `regenerateInterviewGuide`, which cannot be reached by a stray click.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Emphasis' }
+      responses:
+        '201':
+          description: The generated guide.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InterviewGuide' }
+        '400': { $ref: '#/components/responses/MalformedBody' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StatusForbidsIt' }
+        '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    get:
+      operationId: getInterviewGuide
+      tags: [Interview guides]
+      summary: The retained interview guide for this candidate
+      description: FR-3.1 — reopened before the interview rather than generated again.
+      responses:
+        '200':
+          description: The guide.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InterviewGuide' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /job-openings/{id}/candidates/{candidateId}/interview-guide/regenerate:
+    parameters:
+      - $ref: '#/components/parameters/JobOpeningId'
+      - $ref: '#/components/parameters/CandidateId'
+    post:
+      operationId: regenerateInterviewGuide
+      tags: [Interview guides]
+      summary: Ask the model again, optionally with an emphasis
+      description: |
+        `reviseGuide()` in its regenerating form. FR-3.4 and UC-3 alternate flow 5a: the
+        Recruiter wants a different emphasis, such as more system design. Every question is
+        replaced and the revision number moves.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Emphasis' }
+      responses:
+        '200':
+          description: The regenerated guide.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InterviewGuide' }
+        '400': { $ref: '#/components/responses/MalformedBody' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /job-openings/{id}/candidates/{candidateId}/interview-guide/questions:
+    parameters:
+      - $ref: '#/components/parameters/JobOpeningId'
+      - $ref: '#/components/parameters/CandidateId'
+    put:
+      operationId: reviseGuideQuestions
+      tags: [Interview guides]
+      summary: Replace the questions with the Recruiter's own set
+      description: |
+        `reviseGuide()` in its editing form. FR-3.4: adding, rewording, reordering and removing
+        are one request, because the whole set is sent. No model is called, so the guide no
+        longer carries a model attribution — the questions are partly the Recruiter's.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionSet' }
+      responses:
+        '200':
+          description: The revised guide.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InterviewGuide' }
+        '400': { $ref: '#/components/responses/MalformedBody' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/BusinessRuleViolated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   /healthz:
     get:
       operationId: health
@@ -197,6 +303,14 @@ components:
       required: true
       schema: { type: string }
       example: jo_3f9c0a6e1b2d4c5f8a7e6d5c4b3a2918
+
+    CandidateId:
+      name: candidateId
+      in: path
+      required: true
+      description: The candidate's id in the Resume Processing Service, which owns it.
+      schema: { type: string }
+      example: cand-001
 
   schemas:
     Classification:
@@ -263,6 +377,85 @@ components:
           description: Present only once the job opening is closed.
         opened_at: { type: string, format: date-time, description: UTC. }
 
+    QuestionKind:
+      type: string
+      enum: [resume-claim, must-have-gap, role-depth]
+      description: |
+        What the question is for (FR-3.2): probing a claim the resume makes, resolving a
+        must-have the resume did not evidence, or role-specific depth from the criteria.
+
+    Question:
+      type: object
+      additionalProperties: false
+      required: [text, criterion, kind]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          example: You list Kafka on the Wongnai project — what was the partitioning strategy, and why?
+        criterion:
+          type: string
+          minLength: 1
+          description: The criterion this question tests, named as the job opening spells it (FR-3.3).
+          example: Has shipped with Kafka
+        evidence:
+          type: string
+          description: |
+            The resume claim the question was derived from (FR-3.3). Absent for a must-have the
+            resume never mentions, which is itself why it is being asked.
+        kind: { $ref: '#/components/schemas/QuestionKind' }
+
+    QuestionSet:
+      type: array
+      minItems: 1
+      items: { $ref: '#/components/schemas/Question' }
+
+    Emphasis:
+      type: object
+      additionalProperties: false
+      properties:
+        emphasis:
+          type: string
+          description: A steer for the generation, e.g. "more system design" (FR-3.4).
+          example: more system design
+
+    ModelAttribution:
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [provider, model, prompt_version]
+      description: |
+        Which model wrote these questions (ADR-004), so a guide can still be accounted for
+        months later. Null once a Recruiter has edited the set.
+      properties:
+        provider: { type: string, example: anthropic }
+        model: { type: string }
+        prompt_version: { type: string }
+
+    InterviewGuide:
+      type: object
+      additionalProperties: false
+      required: [id, job_opening_id, candidate_id, questions, source, attribution, revision, created_at, updated_at]
+      properties:
+        id: { type: string, example: ig_9c1f0b7e2d3a4b5c6d7e8f9a0b1c2d3e }
+        job_opening_id: { type: string }
+        candidate_id: { type: string }
+        questions: { $ref: '#/components/schemas/QuestionSet' }
+        emphasis:
+          type: string
+          description: The steer the last generation was asked for, absent when none was given.
+        source:
+          type: string
+          enum: [generated, edited]
+          description: Whether the questions are the model's or the Recruiter's.
+        attribution: { $ref: '#/components/schemas/ModelAttribution' }
+        revision:
+          type: integer
+          minimum: 1
+          description: Moves on every generation and every edit.
+        created_at: { type: string, format: date-time, description: UTC. }
+        updated_at: { type: string, format: date-time, description: UTC. }
+
     Error:
       type: object
       additionalProperties: false
@@ -277,12 +470,16 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
-      description: No job opening has this id.
+      description: |
+        Nothing here has this id: no such job opening, no guide generated for this candidate
+        yet, or no such candidate profile in the Resume Processing Service.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     StatusForbidsIt:
-      description: The job opening's current status does not allow this — e.g. it is closed (FR-1.9).
+      description: |
+        The job opening's current status does not allow this — e.g. it is closed (FR-1.9) — or
+        the candidate already has a guide for it.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -290,6 +487,13 @@ components:
       description: |
         The request is well-formed but breaks a business rule: no criteria, a non-positive
         weight, an unknown classification or outcome, no expected time-to-fill.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UpstreamUnavailable:
+      description: |
+        A service this operation reads could not answer — the Resume Processing Service or the
+        AI Service. Saying so beats returning a guide with nothing in it.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

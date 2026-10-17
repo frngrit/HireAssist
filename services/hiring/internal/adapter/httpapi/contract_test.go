@@ -51,6 +51,15 @@ func TestHandlerMatchesOpenAPIContract(t *testing.T) {
 		{"pause", "POST", "/job-openings/jo-1/pause", "", false, 200},
 		{"pause, already paused", "POST", "/job-openings/jo-1/pause", "", false, 409},
 		{"resume", "POST", "/job-openings/jo-1/resume", "", false, 200},
+
+		// UC-3, on the opening created above.
+		{"generate guide", "POST", "/job-openings/jo-1/candidates/cand-001/interview-guide", `{"emphasis": "more system design"}`, false, 201},
+		{"generate guide, already one", "POST", "/job-openings/jo-1/candidates/cand-001/interview-guide", "", false, 409},
+		{"get guide", "GET", "/job-openings/jo-1/candidates/cand-001/interview-guide", "", false, 200},
+		{"get guide, none yet", "GET", "/job-openings/jo-1/candidates/cand-404/interview-guide", "", false, 404},
+		{"regenerate guide", "POST", "/job-openings/jo-1/candidates/cand-001/interview-guide/regenerate", `{"emphasis": "more behavioural"}`, false, 200},
+		{"revise questions", "PUT", "/job-openings/jo-1/candidates/cand-001/interview-guide/questions", `[{"text": "Walk me through the outage.", "criterion": "Kubernetes", "kind": "resume-claim"}]`, false, 200},
+		{"revise questions, none left", "PUT", "/job-openings/jo-1/candidates/cand-001/interview-guide/questions", `[]`, true, 422},
 		{"close, unknown outcome", "POST", "/job-openings/jo-1/close", `{"outcome": "abandoned"}`, true, 422},
 		{"close", "POST", "/job-openings/jo-1/close", `{"outcome": "filled"}`, false, 200},
 		{"revise criteria, closed", "PUT", "/job-openings/jo-1/criteria", `[{"name": "Go", "classification": "must-have", "weight": 3}]`, false, 409},
