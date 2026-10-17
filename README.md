@@ -39,7 +39,7 @@ Term project for **Software Architecture**, Chulalongkorn University.
 | [docs/SERVICE-OPERATIONS-COLLABORATORS.md](docs/SERVICE-OPERATIONS-COLLABORATORS.md) | Each service's operations and who it collaborates with. |
 | [services/ai-service/](services/ai-service/) | **Code.** The AI Service — Python, uv, gRPC. The first implemented service. |
 | [services/identity/](services/identity/) | **Code.** The Identity Service — Go, net/http, PostgreSQL, REST. Member CRUD and signing in (UC-0): ES256 access tokens and rotating refresh tokens (ADR-009). |
-| [services/hiring/](services/hiring/) | **Code.** The Hiring Service — Go, PostgreSQL and MongoDB, REST with an OpenAPI contract. Job openings (UC-1) and interview guides (UC-3); proposing criteria with AI is not built yet. |
+| [services/hiring/](services/hiring/) | **Code.** The Hiring Service — Go, PostgreSQL and MongoDB, REST with an OpenAPI contract, RabbitMQ and MinIO. Job openings with AI-proposed criteria (UC-1), batch screening through the message broker (UC-2) and interview guides (UC-3). |
 | [services/gateway/](services/gateway/) | **Code.** The API Gateway — Go. Routing, local token verification (ADR-009), the role gate and rate limiting. |
 | [proto/](proto/) | Shared gRPC contracts. Callers generate clients from these. |
 | [services/web/](services/web/) | **Code.** The HireAssist Web UI — React, TypeScript, Mantine. Sign-in and UC-1 to UC-3. Runs on a mock backend, or against the gateway for sign-in, job openings and interview guides. |
@@ -80,12 +80,12 @@ index and the decisions not yet taken in [`docs/adr/INDEX.md`](docs/adr/INDEX.md
 
 ## Repository status
 
-**Documentation, plus four services in progress:** the AI Service, the Identity Service, the
-Hiring Service and the API Gateway, each listed in the table above with its own README.
-`docker compose up -d --build` at the root runs the whole system: the web app on
+**Documentation, plus five services in progress:** the AI Service, the Identity Service, the
+Hiring Service, the Resume Processing Service and the API Gateway, each with its own README, and
+the web app. `docker compose up -d --build` at the root runs the whole system: the web app on
 http://localhost:4173, the gateway, the Identity, Hiring, Resume Processing and AI services
 (the AI Service with canned answers, so no API key is needed), PostgreSQL, MongoDB, RabbitMQ
-and S3 storage. The comments at the top of `docker-compose.yml` list the demo sign-ins and the
+and MinIO. The comments at the top of `docker-compose.yml` list the demo sign-ins and the
 variables that move a host port that is already taken.
 
 The repository is a monorepo. Services live at `services/<name>/` and shared gRPC contracts at

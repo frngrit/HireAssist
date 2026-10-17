@@ -15,6 +15,37 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-17 19:39 — Screening built to the Resume Processing contract
+
+- **UC-2 runs end to end through RabbitMQ**, on the terms of `resume-processing/MESSAGES.md`,
+  against the real Resume Processing Service. Hiring keeps each request in PostgreSQL until the
+  broker confirms it, so a broker outage delays screening and loses nothing (NFR-10). A result it
+  can never accept goes to its own `screening.completed.dlq`, added to the contract as a
+  Hiring-internal queue: the shared queues take no dead-letter arguments.
+- **Hiring keeps the score, the must-have check and the unmet must-haves, not the
+  justification**, though the message carries it — the table's *Hiring reads the profile, it does
+  not copy it*, and ADR-003's boundary. One consequence: filtering the ranking by criterion works
+  on must-haves only, since nice-to-haves come back only through the score.
+- **The ranking puts candidates who meet every must-have first**, then orders by score: a
+  must-have is a gate, not a weight (FR-2.5).
+- **`getScreeningResult()` added to the SOC table** — opening one screened resume, which reads the
+  justification from Resume Processing.
+- **Shortlisting exists now**, so UC-3's precondition can be checked; generating a guide does not
+  check it yet.
+- **A service Hiring depends on failing is 502 everywhere** — proposals and storage now follow
+  the rule UC-3 set.
+- **The root compose file runs the whole stack**: Resume Processing, and the AI Service on scripted
+  answers, beside RabbitMQ, MinIO, MongoDB and PostgreSQL. MinIO no longer publishes free images,
+  so the image is Chainguard's build of it.
+- The architecture page still had the gateway asking the Identity Service to validate every
+  request; it now verifies the token itself, as the runtime view and the SOC table already said.
+
+Outstanding: ADR-010 and the documents that change with it — the SOC table and the runtime view
+still describe the REST handover; per-criterion verdicts in `screening.completed`, for filtering
+on nice-to-haves; UC-3's shortlisted precondition.
+
+---
+
 ## 2026-10-17 15:46 — Web UI on a mock backend; front-end framework settled
 
 - **Front-end framework settled** by its owner under ADR-005: React and TypeScript, a single-page app that talks only to the gateway. A browser leaves no language choice, so TypeScript needs no further reason under ADR-005 rule 6. Next.js was rejected because its own server would be a second backend beside the gateway. Removed from CONTEXT's open decisions and the ADR index's candidates.
@@ -99,6 +130,25 @@ what a session decided, and rewriting it destroys the record of when and why som
 - Outstanding: an owner for the gateway (ADR-005 rule 5); the services' half of ADR-009; sign-in
   in Identity, without which `/auth/sign-in` has nothing behind it; `recordAuthorisationRejected()`
   is a log line until Compliance & Insights exists.
+
+---
+
+## 2026-10-16 20:39 — The progress demo's scope recorded; the proposal's ADR index completed
+
+- **The progress brief is recorded in `course/ASSIGNMENT.md`.** The clip shows UC-1 to UC-3 plus
+  signing in: the three use cases the AI Service serves, which chain into one flow and between
+  them use both PostgreSQL and MongoDB.
+- **The broker sits between Hiring and Resume Processing**, carrying the screening handover — the
+  team's division of work, rather than the pipeline events to Compliance & Insights the documents
+  had named as its likeliest place. ADR-010 is to record it.
+- **The proposal's ADR index lists ADR-007 to ADR-009**, which it had been missing. CONTEXT and
+  the assignment status table now count 50 functional requirements, not 44; the status table
+  also stopped calling the use case diagram an SVG and counting six ADRs.
+- **The Identity Service owns members, not accounts and memberships** — the synonyms the glossary
+  rules out — in the runtime view and on the architecture page. The runtime view's UC-6 flow also
+  carried an old title and three of its six operations.
+
+Outstanding: ADR-010, and the documents that change with it.
 
 ---
 

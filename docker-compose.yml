@@ -5,16 +5,15 @@
 # Sign in as somchai@acme.example / somchai-recruiter-password (recruiter) or
 # nok@acme.example / nok-admin-demo-password (admin): the Identity Service's synthetic seed.
 #
-# Published on the host: the web app, the gateway (for Postman), the RabbitMQ management UI, and
-# the datastores the services' integration tests use. Every host port can be moved with a
+# Published on the host: the web app, the gateway (for Postman), the RabbitMQ and MinIO consoles,
+# and the ports the services' own tests and tools use. Every host port can be moved with a
 # variable, for example in a .env file next to this one (which Git ignores):
 #
 #   POSTGRES_PORT=55432
 #   MONGO_PORT=57017
 #
-# The Identity, Hiring, Resume Processing and AI services are reachable only inside the stack,
-# so every request goes through the gateway, as it would in a deployment. Hiring's port is the
-# exception, kept for its own tests and Swagger UI.
+# The Identity Service is reachable only inside the stack. The web app reaches every other
+# service through the gateway, as it would in a deployment.
 #
 # Credentials here are for local use only; never reuse them elsewhere.
 name: hireassist
@@ -56,7 +55,7 @@ services:
       retries: 15
 
   # One MongoDB server, one database per service: Hiring's interview guides, and Resume
-  # Processing's profiles and screenings. Neither reads the other's database.
+  # Processing's profiles and screenings (ADR-003). Neither reads the other's database.
   mongo:
     image: mongo:7
     ports:
@@ -69,28 +68,54 @@ services:
       timeout: 3s
       retries: 15
 
-  # The screening queues between Hiring and Resume Processing.
+  # Carries the screening handover between Hiring and Resume Processing
+  # (services/resume-processing/MESSAGES.md). The management UI, at http://localhost:15672
+  # (hireassist / hireassist), shows the queues and the messages in them.
   rabbitmq:
-    image: rabbitmq:3.13-management
+    image: rabbitmq:4.3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: hireassist
+      RABBITMQ_DEFAULT_PASS: hireassist
     ports:
-      - "${RABBITMQ_UI_PORT:-15672}:15672"   # management UI, guest / guest
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  # S3-compatible object storage for resume files. MinIO no longer publishes free images on
+  # Docker Hub or quay.io; Chainguard's build of it is maintained and free, as `latest` only. The
+  # console is at http://localhost:9001 (hireassist / hireassist-local).
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: hireassist
+      MINIO_ROOT_PASSWORD: hireassist-local   # MinIO wants at least 8 characters
+      MC_CONFIG_DIR: /tmp/.mc                 # where the health check's mc may write
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
       interval: 5s
       timeout: 5s
       retries: 20
 
-  # S3-compatible storage for resume files. minio/minio can no longer be pulled from Docker
-  # Hub, so this is moto's S3 server: the same API, any access key, files kept in memory.
-  s3:
-    image: motoserver/moto:latest
-    ports:
-      - "${S3_PORT:-9000}:5000"
+  # The AI Service from services/ai-service, on scripted answers so no API key is needed — each
+  # is labelled `canned` in what it returns. Remove AI_SERVICE_PROVIDER and set
+  # AI_SERVICE_API_KEY to use the real model. The first start installs its dependencies.
 
   # ── Services ────────────────────────────────────────────────────────────────────────────
 
-  # Canned answers, so no API key is needed. Set AI_SERVICE_PROVIDER to an empty value and
-  # AI_SERVICE_API_KEY to use the real model.
+  # Canned answers, so no API key is needed — each is labelled `canned` in what it returns. Set
+  # AI_SERVICE_PROVIDER to an empty value and AI_SERVICE_API_KEY to use the real model.
   ai-service:
     image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
     working_dir: /repo/services/ai-service
@@ -109,23 +134,29 @@ services:
         uv run python -m grpc_tools.protoc -I../../proto --python_out=src/ai_service/gen --pyi_out=src/ai_service/gen --grpc_python_out=src/ai_service/gen ../../proto/hireassist/ai/v1/ai_service.proto &&
         find src/ai_service/gen -name '*_pb2_grpc.py' -exec sed -i 's/^from hireassist/from ai_service.gen.hireassist/' {} + &&
         uv run python -m ai_service
+    ports:
+      - "${AI_SERVICE_PORT:-50051}:50051"
 
   resume-processing:
     build:
       context: .
       dockerfile: services/resume-processing/Dockerfile
     environment:
+      AMQP_URL: amqp://hireassist:hireassist@rabbitmq:5672
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: hireassist
+      S3_SECRET_KEY: hireassist-local
       MONGO_URL: mongodb://mongo:27017
-      AMQP_URL: amqp://guest:guest@rabbitmq:5672
-      S3_ENDPOINT: http://s3:5000
       AI_SERVICE_ADDR: ai-service:50051
+    ports:
+      - "${RESUME_PROCESSING_PORT:-3000}:3000"
     depends_on:
-      mongo:
-        condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      s3:
-        condition: service_started
+      minio:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
       ai-service:
         condition: service_started
 
@@ -136,14 +167,23 @@ services:
       DATABASE_URL: postgres://hireassist:hireassist@postgres:5432/hiring?sslmode=disable
       MONGO_URL: mongodb://mongo:27017
       MONGO_DATABASE: hiring
-      RESUME_PROCESSING_URL: http://resume-processing:3000
-      AI_SERVICE_ADDRESS: ai-service:50051
+      RABBITMQ_URL: amqp://hireassist:hireassist@rabbitmq:5672/
+      OBJECT_STORE_ENDPOINT: minio:9000
+      OBJECT_STORE_ACCESS_KEY: hireassist
+      OBJECT_STORE_SECRET_KEY: hireassist-local
+      OBJECT_STORE_BUCKET: resumes
+      RESUME_PROCESSING_URL: "${RESUME_PROCESSING_URL:-http://resume-processing:3000}"
+      AI_SERVICE_ADDRESS: "${AI_SERVICE_ADDRESS:-ai-service:50051}"
     ports:
       - "${HIRING_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   # Creates the development signing key pair on first start, in the jwt-keys volume, and holds
@@ -201,3 +241,5 @@ volumes:
   identity-data:
   mongo-data:
   jwt-keys:
+  rabbitmq-data:
+  minio-data:
