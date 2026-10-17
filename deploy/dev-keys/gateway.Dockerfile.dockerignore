@@ -1,0 +1,4 @@
+# Built from the repository root: send only what this image needs.
+*
+!services/gateway/
+!deploy/dev-keys/entrypoint.sh

@@ -1,9 +1,27 @@
-# Local development stack. `docker compose up --build` runs the gateway and the Hiring Service
-# against PostgreSQL and MongoDB (ADR-003). Credentials here are for local use only; never
-# reuse them elsewhere.
+# Local development stack: every service, its datastores and the broker, in one command.
+#
+#   docker compose up -d --build      then open http://localhost:4173
+#
+# Sign in as somchai@acme.example / somchai-recruiter-password (recruiter) or
+# nok@acme.example / nok-admin-demo-password (admin): the Identity Service's synthetic seed.
+#
+# Published on the host: the web app, the gateway (for Postman), the RabbitMQ management UI, and
+# the datastores the services' integration tests use. Every host port can be moved with a
+# variable, for example in a .env file next to this one (which Git ignores):
+#
+#   POSTGRES_PORT=55432
+#   MONGO_PORT=57017
+#
+# The Identity, Hiring, Resume Processing and AI services are reachable only inside the stack,
+# so every request goes through the gateway, as it would in a deployment. Hiring's port is the
+# exception, kept for its own tests and Swagger UI.
+#
+# Credentials here are for local use only; never reuse them elsewhere.
 name: hireassist
 
 services:
+  # ── Datastores and broker (ADR-003) ─────────────────────────────────────────────────────
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -11,7 +29,7 @@ services:
       POSTGRES_PASSWORD: hireassist
       POSTGRES_DB: hiring
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"   # set POSTGRES_PORT if 5432 is taken
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./deploy/postgres/init-test-database.sql:/docker-entrypoint-initdb.d/init-test-database.sql:ro
@@ -21,12 +39,28 @@ services:
       timeout: 3s
       retries: 15
 
-  # Interview guides are AI-derived documents, so ADR-003 puts them here rather than beside
-  # the hiring record in PostgreSQL.
+  # The Identity Service's own database, created and seeded from its schema and seed scripts.
+  identity-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: identity
+      POSTGRES_PASSWORD: identity
+      POSTGRES_DB: identity
+    volumes:
+      - identity-data:/var/lib/postgresql/data
+      - ./services/identity/db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity -d identity"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # One MongoDB server, one database per service: Hiring's interview guides, and Resume
+  # Processing's profiles and screenings. Neither reads the other's database.
   mongo:
     image: mongo:7
     ports:
-      - "${MONGO_PORT:-27017}:27017"   # set MONGO_PORT if 27017 is taken
+      - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -35,6 +69,66 @@ services:
       timeout: 3s
       retries: 15
 
+  # The screening queues between Hiring and Resume Processing.
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "${RABBITMQ_UI_PORT:-15672}:15672"   # management UI, guest / guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # S3-compatible storage for resume files. minio/minio can no longer be pulled from Docker
+  # Hub, so this is moto's S3 server: the same API, any access key, files kept in memory.
+  s3:
+    image: motoserver/moto:latest
+    ports:
+      - "${S3_PORT:-9000}:5000"
+
+  # ── Services ────────────────────────────────────────────────────────────────────────────
+
+  # Canned answers, so no API key is needed. Set AI_SERVICE_PROVIDER to an empty value and
+  # AI_SERVICE_API_KEY to use the real model.
+  ai-service:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /repo/services/ai-service
+    volumes:
+      - ./proto:/repo/proto:ro
+      - ./services/ai-service:/repo/services/ai-service
+    environment:
+      AI_SERVICE_PROVIDER: "${AI_SERVICE_PROVIDER-canned}"
+      AI_SERVICE_API_KEY: "${AI_SERVICE_API_KEY:-}"
+      UV_PROJECT_ENVIRONMENT: /opt/venv   # keeps the Linux virtualenv out of the working tree
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        uv sync --frozen &&
+        mkdir -p src/ai_service/gen && touch src/ai_service/gen/__init__.py &&
+        uv run python -m grpc_tools.protoc -I../../proto --python_out=src/ai_service/gen --pyi_out=src/ai_service/gen --grpc_python_out=src/ai_service/gen ../../proto/hireassist/ai/v1/ai_service.proto &&
+        find src/ai_service/gen -name '*_pb2_grpc.py' -exec sed -i 's/^from hireassist/from ai_service.gen.hireassist/' {} + &&
+        uv run python -m ai_service
+
+  resume-processing:
+    build:
+      context: .
+      dockerfile: services/resume-processing/Dockerfile
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672
+      S3_ENDPOINT: http://s3:5000
+      AI_SERVICE_ADDR: ai-service:50051
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      s3:
+        condition: service_started
+      ai-service:
+        condition: service_started
+
   hiring:
     build: ./services/hiring
     environment:
@@ -42,33 +136,68 @@ services:
       DATABASE_URL: postgres://hireassist:hireassist@postgres:5432/hiring?sslmode=disable
       MONGO_URL: mongodb://mongo:27017
       MONGO_DATABASE: hiring
-      # UC-3 reads a candidate profile from one service and asks another for the questions.
-      # Neither is in this compose file yet; until they are, generating a guide answers 502.
-      RESUME_PROCESSING_URL: "${RESUME_PROCESSING_URL:-}"
-      AI_SERVICE_ADDRESS: "${AI_SERVICE_ADDRESS:-}"
+      RESUME_PROCESSING_URL: http://resume-processing:3000
+      AI_SERVICE_ADDRESS: ai-service:50051
     ports:
-      - "8080:8080"
+      - "${HIRING_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
         condition: service_healthy
 
+  # Creates the development signing key pair on first start, in the jwt-keys volume, and holds
+  # the private half (ADR-009). `docker compose down -v` discards it with the data.
+  identity:
+    build:
+      context: .
+      dockerfile: deploy/dev-keys/identity.Dockerfile
+    environment:
+      PORT: "8081"
+      DATABASE_URL: postgres://identity:identity@identity-db:5432/identity?sslmode=disable
+      JWT_KEY_ID: dev-1
+    volumes:
+      - jwt-keys:/keys
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Holds only the public half of the key (ADR-009).
   gateway:
-    build: ./services/gateway
+    build:
+      context: .
+      dockerfile: deploy/dev-keys/gateway.Dockerfile
     environment:
       PORT: "8000"
+      IDENTITY_URL: http://identity:8081
       HIRING_URL: http://hiring:8080
-      # The Identity Service is not in this compose file yet; it runs from its own.
-      IDENTITY_URL: http://host.docker.internal:8081
-      # The public half of the development key pair (`make keys` in services/gateway).
-      # The gateway only ever holds public keys (ADR-009).
-      JWT_PUBLIC_KEYS: "${JWT_PUBLIC_KEYS:-}"
+      # The web app's refresh cookie is Secure by default; this stack serves plain HTTP.
+      SESSION_COOKIE_SECURE: "false"
+    volumes:
+      - jwt-keys:/keys:ro
     ports:
-      - "8000:8000"
+      - "${GATEWAY_PORT:-8000}:8000"
     depends_on:
-      - hiring
+      identity:
+        condition: service_healthy
+      hiring:
+        condition: service_started
+
+  # The web app, built against the gateway. nginx strips /api and forwards to the gateway.
+  web:
+    build: ./services/web
+    ports:
+      - "${WEB_PORT:-4173}:80"
+    depends_on:
+      - gateway
 
 volumes:
   postgres-data:
+  identity-data:
   mongo-data:
+  jwt-keys:

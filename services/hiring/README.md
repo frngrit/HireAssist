@@ -15,9 +15,11 @@ client, and `kin-openapi`, used only by the contract test.
 
 ## Running
 
-From the repository root, `docker compose up --build` starts PostgreSQL and the service on
-`localhost:8080`. If port 5432 is already taken on your machine, set `POSTGRES_PORT` to another
-port, for example `POSTGRES_PORT=55432 docker compose up --build`.
+From the repository root, `docker compose up -d --build hiring` starts the service on
+`localhost:8080` with PostgreSQL and MongoDB; `docker compose up -d --build` starts the whole
+system around it, including the Resume Processing and AI services UC-3 reads from. If port 5432
+is already taken on your machine, set `POSTGRES_PORT` to another port, for example
+`POSTGRES_PORT=55432 docker compose up -d --build`.
 
 | Variable | Meaning |
 |---|---|
