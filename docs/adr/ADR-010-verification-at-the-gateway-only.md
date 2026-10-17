@@ -35,11 +35,12 @@ mapping a role to a permission would be implemented separately in each, by diffe
 be got right every time. ADR-005 names a privilege mistake in one implementation as the highest
 risk it accepts.
 
-**Most internal calls carry no token at all.** Resume Processing calls back into Hiring when a
-resume has been scored. The retention sweep calls erasure operations on two services. A
-scheduler triggers the sweep. There is no member behind any of these, so there is no member
-token to verify. A rule that every service verifies the caller's token therefore does not
-describe the traffic those services actually receive — it would need a second mechanism, for
+**Most internal traffic carries no token at all.** A scored resume comes back into the Hiring
+Service as a message, not as a request a person made. The retention sweep calls erasure
+operations on two services. A scheduler triggers the sweep. There is no member behind any of
+these, so there is no member token to verify, and a message off a queue has nowhere to carry one
+that would mean anything. A rule that every service verifies the caller's token therefore does
+not describe the traffic those services actually receive — it would need a second mechanism, for
 service-to-service identity, that nothing has specified.
 
 **One deployment serves one company** ([ADR-006](ADR-006-single-tenant-deployment.md)). The
@@ -152,8 +153,9 @@ service later needs its own check, the token is already in the request.
   tests that run in one place.
 - The risk ADR-005 named — a privilege mistake in one of several implementations — does not
   arise for this concern, because there is only one implementation.
-- Internal calls need no member token and no service identity, so the callback into Hiring, the
-  erasure calls and the scheduler's triggers work without a second authentication mechanism.
+- Internal traffic needs no member token and no service identity, so results arriving as
+  messages, the erasure calls and the scheduler's triggers all work without a second
+  authentication mechanism.
 - Services behind the gateway carry no security code, no verification key and no clock-skew
   rules.
 
