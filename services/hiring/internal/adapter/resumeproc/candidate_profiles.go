@@ -54,6 +54,8 @@ type profileJSON struct {
 	// ResumeText is the whole extracted text. A profile the pipeline produced has the
 	// structured fields and additional_text; one created by hand has only this.
 	ResumeText string `json:"resume_text"`
+	// Screenings are the results of screening this candidate, read for UC-2's justification.
+	Screenings []screeningJSON `json:"screenings"`
 }
 
 type workExperienceJSON struct {
@@ -72,29 +74,9 @@ type educationJSON struct {
 
 // GetCandidateProfile is `getCandidateProfile()` from the SOC table.
 func (c *CandidateProfiles) GetCandidateProfile(ctx context.Context, candidateID string) (domain.CandidateProfile, error) {
-	endpoint := c.baseURL + "/candidates/" + url.PathEscape(candidateID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	body, err := c.fetch(ctx, candidateID)
 	if err != nil {
-		return domain.CandidateProfile{}, fmt.Errorf("building the request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	res, err := c.client.Do(req)
-	if err != nil {
-		return domain.CandidateProfile{}, fmt.Errorf("calling the resume processing service: %w", err)
-	}
-	defer res.Body.Close()
-
-	switch {
-	case res.StatusCode == http.StatusNotFound:
-		return domain.CandidateProfile{}, usecase.ErrCandidateNotFound
-	case res.StatusCode != http.StatusOK:
-		return domain.CandidateProfile{}, fmt.Errorf("resume processing service answered %s", res.Status)
-	}
-
-	var body profileJSON
-	if err := json.NewDecoder(io.LimitReader(res.Body, maxProfileBytes)).Decode(&body); err != nil {
-		return domain.CandidateProfile{}, fmt.Errorf("reading the candidate profile: %w", err)
+		return domain.CandidateProfile{}, err
 	}
 	if body.ID == "" {
 		return domain.CandidateProfile{}, errors.New("the candidate profile carries no id")
@@ -109,6 +91,35 @@ func (c *CandidateProfiles) GetCandidateProfile(ctx context.Context, candidateID
 		// fields and no leftover, so its resume text is all there is.
 		AdditionalText: cmp.Or(body.AdditionalText, body.ResumeText),
 	}, nil
+}
+
+// fetch reads one candidate's document: the profile, with every screening of it.
+func (c *CandidateProfiles) fetch(ctx context.Context, candidateID string) (profileJSON, error) {
+	endpoint := c.baseURL + "/candidates/" + url.PathEscape(candidateID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return profileJSON{}, fmt.Errorf("building the request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return profileJSON{}, fmt.Errorf("calling the resume processing service: %w", err)
+	}
+	defer res.Body.Close()
+
+	switch {
+	case res.StatusCode == http.StatusNotFound:
+		return profileJSON{}, usecase.ErrCandidateNotFound
+	case res.StatusCode != http.StatusOK:
+		return profileJSON{}, fmt.Errorf("resume processing service answered %s", res.Status)
+	}
+
+	var body profileJSON
+	if err := json.NewDecoder(io.LimitReader(res.Body, maxProfileBytes)).Decode(&body); err != nil {
+		return profileJSON{}, fmt.Errorf("reading the candidate profile: %w", err)
+	}
+	return body, nil
 }
 
 func toWorkHistory(in []workExperienceJSON) []domain.WorkExperience {

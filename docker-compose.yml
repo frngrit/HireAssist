@@ -1,6 +1,7 @@
-# Local development stack. `docker compose up --build` runs the gateway and the Hiring Service
-# against PostgreSQL and MongoDB (ADR-003). Credentials here are for local use only; never
-# reuse them elsewhere.
+# Local development stack. `docker compose up --build` runs the gateway, the Hiring Service and
+# the Resume Processing Service, with the AI Service on scripted answers, against PostgreSQL and
+# MongoDB (ADR-003), the message broker carrying the screening handover, and object storage for
+# resume files. Credentials here are for local use only; never reuse them elsewhere.
 name: hireassist
 
 services:
@@ -21,8 +22,8 @@ services:
       timeout: 3s
       retries: 15
 
-  # Interview guides are AI-derived documents, so ADR-003 puts them here rather than beside
-  # the hiring record in PostgreSQL.
+  # AI-derived documents (ADR-003): Hiring's interview guides and Resume Processing's candidate
+  # profiles, each in a database of its own.
   mongo:
     image: mongo:7
     ports:
@@ -35,6 +36,91 @@ services:
       timeout: 3s
       retries: 15
 
+  # Carries the screening handover between Hiring and Resume Processing
+  # (services/resume-processing/MESSAGES.md). The management UI, at http://localhost:15672
+  # (hireassist / hireassist), shows the queues and the messages in them.
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: hireassist
+      RABBITMQ_DEFAULT_PASS: hireassist
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  # S3-compatible object storage for resume files. MinIO no longer publishes free images on
+  # Docker Hub or quay.io; Chainguard's build of it is maintained and free, as `latest` only. The
+  # console is at http://localhost:9001 (hireassist / hireassist-local).
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: hireassist
+      MINIO_ROOT_PASSWORD: hireassist-local   # MinIO wants at least 8 characters
+      MC_CONFIG_DIR: /tmp/.mc                 # where the health check's mc may write
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # The AI Service from services/ai-service, on scripted answers so no API key is needed — each
+  # is labelled `canned` in what it returns. Remove AI_SERVICE_PROVIDER and set
+  # AI_SERVICE_API_KEY to use the real model. The first start installs its dependencies.
+  ai-service:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /repo/services/ai-service
+    volumes:
+      - .:/repo
+    environment:
+      AI_SERVICE_PROVIDER: canned
+      UV_PROJECT_ENVIRONMENT: /opt/venv   # keep the Linux venv out of the working tree
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        uv sync --frozen &&
+        mkdir -p src/ai_service/gen && touch src/ai_service/gen/__init__.py &&
+        uv run python -m grpc_tools.protoc -I../../proto --python_out=src/ai_service/gen --pyi_out=src/ai_service/gen --grpc_python_out=src/ai_service/gen ../../proto/hireassist/ai/v1/ai_service.proto &&
+        find src/ai_service/gen -name '*_pb2_grpc.py' -exec sed -i 's/^from hireassist/from ai_service.gen.hireassist/' {} + &&
+        uv run python -m ai_service
+    ports:
+      - "${AI_SERVICE_PORT:-50051}:50051"
+
+  resume-processing:
+    build:
+      context: .
+      dockerfile: services/resume-processing/Dockerfile
+    environment:
+      AMQP_URL: amqp://hireassist:hireassist@rabbitmq:5672
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: hireassist
+      S3_SECRET_KEY: hireassist-local
+      MONGO_URL: mongodb://mongo:27017
+      AI_SERVICE_ADDR: ai-service:50051
+    ports:
+      - "${RESUME_PROCESSING_PORT:-3000}:3000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+
   hiring:
     build: ./services/hiring
     environment:
@@ -42,16 +128,23 @@ services:
       DATABASE_URL: postgres://hireassist:hireassist@postgres:5432/hiring?sslmode=disable
       MONGO_URL: mongodb://mongo:27017
       MONGO_DATABASE: hiring
-      # UC-3 reads a candidate profile from one service and asks another for the questions.
-      # Neither is in this compose file yet; until they are, generating a guide answers 502.
-      RESUME_PROCESSING_URL: "${RESUME_PROCESSING_URL:-}"
-      AI_SERVICE_ADDRESS: "${AI_SERVICE_ADDRESS:-}"
+      RABBITMQ_URL: amqp://hireassist:hireassist@rabbitmq:5672/
+      OBJECT_STORE_ENDPOINT: minio:9000
+      OBJECT_STORE_ACCESS_KEY: hireassist
+      OBJECT_STORE_SECRET_KEY: hireassist-local
+      OBJECT_STORE_BUCKET: resumes
+      RESUME_PROCESSING_URL: "${RESUME_PROCESSING_URL:-http://resume-processing:3000}"
+      AI_SERVICE_ADDRESS: "${AI_SERVICE_ADDRESS:-ai-service:50051}"
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   gateway:
@@ -64,6 +157,8 @@ services:
       # The public half of the development key pair (`make keys` in services/gateway).
       # The gateway only ever holds public keys (ADR-009).
       JWT_PUBLIC_KEYS: "${JWT_PUBLIC_KEYS:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # what Docker Desktop provides, on Linux too
     ports:
       - "8000:8000"
     depends_on:
@@ -72,3 +167,5 @@ services:
 volumes:
   postgres-data:
   mongo-data:
+  rabbitmq-data:
+  minio-data:
