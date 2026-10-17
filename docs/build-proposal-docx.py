@@ -19,6 +19,8 @@ import re
 import os
 
 from docx import Document
+from docx.enum.section import WD_ORIENT, WD_SECTION
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -29,6 +31,8 @@ OUT = os.path.join(REPO, "docs", "HireAssist-Proposal.docx")
 FR_SRC = os.path.join(REPO, "docs", "FUNCTIONAL-REQUIREMENTS.md")
 NFR_SRC = os.path.join(REPO, "docs", "NON-FUNCTIONAL-REQUIREMENTS.md")
 UC_DIAGRAM = os.path.join(REPO, "docs", "diagrams", "use-case-diagram.png")
+ARCH_DIAGRAM = os.path.join(REPO, "docs", "diagrams", "sw-arch.drawio.png")
+SOC_SRC = os.path.join(REPO, "docs", "SERVICE-OPERATIONS-COLLABORATORS.md")
 PROPOSAL = os.path.join(REPO, "docs", "PROPOSAL.md")
 
 INK = RGBColor(0x1A, 0x1A, 0x1A)
@@ -243,7 +247,8 @@ def parse_members(path):
             inside = line[3:].strip() == "Group Members"
             continue
         if inside and re.match(r"^\|\s*\d+\s*\|", line):
-            rows.append([plain(c) for c in line.strip().strip("|").split(" | ")])
+            cells = [plain(c) for c in line.strip().strip("|").split(" | ")]
+            rows.append(cells[:3])          # no nickname column in the document
     if not rows:
         raise ValueError(f"{path}: no group members found")
     return rows
@@ -306,6 +311,102 @@ def diagram(doc, image_path, width_in):
     return p
 
 
+SOC_INLINE = re.compile(r"(\*\*.+?\*\*|`[^`]+`|\[[^\]]+\]\([^)]*\)|\*[^*\n]+?\*)")
+
+
+def soc_runs(par, text, *, italic=False, bold=False):
+    """Inline markdown inside one Service-Operations-Collaborators cell."""
+    for tok in SOC_INLINE.split(text):
+        if not tok:
+            continue
+        if tok.startswith("**") and tok.endswith("**") and len(tok) > 4:
+            soc_runs(par, tok[2:-2], italic=italic, bold=True)
+            continue
+        if tok.startswith("*") and tok.endswith("*") and len(tok) > 2:
+            soc_runs(par, tok[1:-1], italic=True, bold=bold)
+            continue
+        if tok.startswith("[") and "](" in tok:
+            soc_runs(par, tok[1:tok.index("](")], italic=italic, bold=bold)
+            continue
+        r = par.add_run(tok)
+        if tok.startswith("`") and tok.endswith("`") and len(tok) > 2:
+            r.text = tok[1:-1]
+            r.font.name = "Consolas"
+            r.font.size = Pt(7.5)
+            r.font.color.rgb = ACCENT
+        else:
+            r.font.name = BODY
+            r.font.size = Pt(8)
+            r.font.color.rgb = INK
+        r.italic = italic
+        r.bold = bold
+
+
+def _balance(md):
+    """An emphasis span may straddle a <br>; close and reopen it on each line
+    so that splitting on <br> never leaves an unpaired marker."""
+    def fix(m, mark):
+        parts = m.group(1).split("<br>")
+        return "<br>".join(f"{mark}{q}{mark}" if q.strip() else q for q in parts)
+    md = re.sub(r"\*\*(.+?)\*\*", lambda m: fix(m, "**"), md, flags=re.S)
+    md = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", lambda m: fix(m, "*"), md, flags=re.S)
+    return md
+
+
+def parse_soc(path):
+    """The Service-Operations-Collaborators table, read rather than retyped."""
+    rows = []
+    for line in pathlib.Path(path).read_text().splitlines():
+        t = line.strip()
+        if t.startswith("|") and t.endswith("|"):
+            if re.match(r"^\|[\s:\-\|]+\|$", t):
+                continue
+            rows.append([c.strip() for c in t.strip("|").split("|")])
+        elif rows:
+            break                       # first table only
+    if not rows or len(rows[0]) != 3:
+        raise ValueError(f"{path}: table not found, or it no longer has three columns")
+    return rows
+
+
+def soc_table(doc, rows, widths):
+    t = doc.add_table(rows=len(rows), cols=3)
+    t.style = "Table Grid"
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    t.autofit = False
+    for i, row in enumerate(rows):
+        for j in range(3):
+            c = t.cell(i, j)
+            c.width = Inches(widths[j])
+            c.text = ""
+            if i == 0:
+                shade(c._tc.get_or_add_tcPr(), "EDF2F6")
+                par = c.paragraphs[0]
+                par.paragraph_format.space_before = Pt(3)
+                par.paragraph_format.space_after = Pt(3)
+                r = par.add_run(row[j])
+                r.font.name = BODY
+                r.font.size = Pt(9)
+                r.bold = True
+                r.font.color.rgb = ACCENT
+                continue
+            md = _balance(row[j].replace("\u3000", "   "))
+            for k, line in enumerate(md.split("<br>")):
+                par = c.paragraphs[0] if k == 0 else c.add_paragraph()
+                par.paragraph_format.space_before = Pt(0)
+                par.paragraph_format.space_after = Pt(0)
+                par.paragraph_format.line_spacing = 1.05
+                if line.strip():
+                    soc_runs(par, line.strip())
+                else:
+                    par.add_run("").font.size = Pt(4)
+    trPr = t.rows[0]._tr.get_or_add_trPr()      # repeat the header across pages
+    hdr = OxmlElement("w:tblHeader")
+    hdr.set(qn("w:val"), "true")
+    trPr.append(hdr)
+    return t
+
+
 doc = Document()
 section = doc.sections[0]
 section.top_margin = section.bottom_margin = Inches(0.8)
@@ -341,9 +442,9 @@ rich(doc, [
 
 subhead(doc, "Group Members", before=12)
 table(doc,
-      ["#", "Student ID", "Name", "Nickname"],
+      ["#", "Student ID", "Name"],
       parse_members(PROPOSAL),
-      [0.35, 1.15, 2.6, 1.2])
+      [0.5, 1.6, 3.6])
 
 # ── Problem Description ─────────────────────────────────────────────────────
 heading(doc, "Problem Description")
@@ -499,7 +600,7 @@ table(doc,
            "Slow time-to-screen, ghosted candidates, no decision trail"],
           ["UC-3", "Generate candidate-specific interview questions", "Recruiter",
            "Unprepared, generic interviews"],
-          ["UC-4", "Monitor hiring pipeline and stale positions", "Recruiter / Scheduler",
+          ["UC-4", "Monitor hiring pipeline and stale positions", "Recruiter / System Scheduler",
            "Positions rot silently"],
           ["UC-5", "Enforce candidate data retention", "System Scheduler / Admin",
            "PDPA exposure"],
@@ -529,7 +630,7 @@ table(doc,
 
 subhead(doc, "Use case diagram", before=12)
 diagram(doc, UC_DIAGRAM, 6.0)
-para(doc, "UML use case diagram; PlantUML source at diagrams/use-case-diagram.puml.",
+para(doc, "UML use case diagram.",
      size=8.5, italic=True, color=MUTED, align=WD_ALIGN_PARAGRAPH.CENTER, after=6)
 
 subhead(doc, "The use cases", before=12)
@@ -645,6 +746,42 @@ rich(doc, [
 for title, rows in nfr_groups:
     subhead(doc, title)
     table(doc, ["ID", "Requirement", "Verified by"], rows, [0.7, 4.9, 1.1])
+
+# ── Microservice Design with Collaborations ─────────────────────────────────
+# Landscape: the collaborators column does not fit in portrait.
+arch = doc.add_section(WD_SECTION.NEW_PAGE)
+arch.orientation = WD_ORIENT.LANDSCAPE
+arch.page_width, arch.page_height = arch.page_height, arch.page_width
+arch.top_margin = arch.bottom_margin = Inches(0.6)
+arch.left_margin = arch.right_margin = Inches(0.6)
+
+heading(doc, "Microservice Design with Collaborations", first=True)
+para(doc,
+     "Five services behind one API gateway. The diagram shows who calls whom; the table "
+     "below lists every operation each service exposes and every operation it calls on "
+     "another. The two describe the same system and must agree.", after=6)
+
+diagram(doc, ARCH_DIAGRAM, 9.4)
+para(doc,
+     "An arrow A \u2192 B means \u201cA calls B\u201d; responses are not drawn. A service\u2019s "
+     "private store is its own \u2014 no service reads another\u2019s, it calls the owning "
+     "service instead. An adapter box stands for an external system the service reaches "
+     "only through it. Every call is REST over HTTP/JSON except the two into the AI "
+     "Service, which are gRPC. There is no message broker.",
+     size=8.5, italic=True, color=MUTED, align=WD_ALIGN_PARAGRAPH.CENTER, after=10)
+
+subhead(doc, "Service \u2013 Operations \u2013 Collaborators", before=6)
+soc_table(doc, parse_soc(SOC_SRC), [2.4, 2.9, 4.4])
+
+para(doc, "", after=4)
+para(doc,
+     "The API Gateway is the entry point, not a domain service: it terminates TLS, routes, "
+     "rate-limits, resolves the caller\u2019s role, validates the session through the Identity "
+     "Service, and records a rejected request to the access audit log. It owns no data. "
+     "External systems \u2014 object storage, the model provider, the email provider \u2014 are each "
+     "reached only through an adapter. No service reads another service\u2019s data store; every "
+     "crossing is one of the operations above.",
+     size=9.5, after=0)
 
 doc.save(OUT)
 print("wrote", OUT)

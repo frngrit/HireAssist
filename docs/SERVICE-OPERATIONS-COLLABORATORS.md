@@ -13,10 +13,11 @@ Service, which are gRPC** (ADR-007). There is no message broker. Only the gRPC c
 | **Compliance & Insights Service**<br><br>*owns: retention policy, pipeline<br>metrics, erasure and access audit logs*<br><br>UC-4 · UC-5 | `setRetentionPolicy()`<br>`evaluateRetention()`<br>`listHeldExpiries()`<br>`resolveHeldExpiry()`<br>`eraseCandidate()`<br>`getErasureAudit()`<br>`getPipelineDashboard()`<br>`evaluateStaleness()`<br>`recordPipelineEvent()`<br>`recordAuthorisationRejected()` | **Hiring Service**<br>　`eraseHiringData()`<br>**Resume Processing Service**<br>　`eraseCandidateProfile()`<br>　`listCandidateProfiles()`<br>**Email Adapter**<br>　`sendEmail()` |
 
 **API Gateway** is the entry point, not a domain service. It terminates TLS, routes, rate-limits,
-resolves the caller's role, and validates the session by calling
-`Identity Service.validateSession()`. It rejects any request exceeding the caller's role and
-calls `Compliance & Insights Service.recordAuthorisationRejected()` for the access audit log. It
-owns no data.
+and resolves the caller's role from the access token, whose signature and expiry it verifies
+itself against the Identity Service's public key rather than by calling the Identity Service on
+every request (**ADR-009**, now implemented at the gateway). It rejects any request exceeding the
+caller's role and calls `Compliance & Insights Service.recordAuthorisationRejected()` for the
+access audit log. It owns no data.
 
 **External systems**, each behind an adapter: Object / Blob Storage, LLM Provider (reached only by
 AI Service), Email Provider. PDF text extraction is an in-process library in Resume Processing,

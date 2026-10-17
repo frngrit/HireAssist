@@ -40,9 +40,10 @@ Term project for **Software Architecture**, Chulalongkorn University.
 | [services/ai-service/](services/ai-service/) | **Code.** The AI Service — Python, uv, gRPC. The first implemented service. |
 | [services/identity/](services/identity/) | **Code.** The Identity Service — Go, net/http, PostgreSQL, REST. Member CRUD; signing in is not built yet. |
 | [services/hiring/](services/hiring/) | **Code.** The Hiring Service — Go, PostgreSQL, REST with an OpenAPI contract. Job openings (UC-1); proposing criteria with AI is not built yet. |
+| [services/gateway/](services/gateway/) | **Code.** The API Gateway — Go. Routing, local token verification (ADR-009), the role gate and rate limiting. |
 | [proto/](proto/) | Shared gRPC contracts. Callers generate clients from these. |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | Runtime view — what each service owns, who calls whom, and the call sequence behind each use case. |
-| [docs/HireAssist-SOC.docx](docs/HireAssist-SOC.docx) | The Service–Operations–Collaborators table as a Word document. Regenerate rather than edit. |
+| `docs/build-proposal-docx.py`, `docs/adr/build-docx.py` | Build the two Word deliverables. The documents themselves are generated, not committed. |
 | [docs/CONTEXT.md](docs/CONTEXT.md) | Internal working notes — open questions, open decisions, glossary. Not for submission. |
 | [docs/adr/](docs/adr/) | Architecture Decision Records, one decision per file, with an index. |
 | [docs/course/ASSIGNMENT.md](docs/course/ASSIGNMENT.md) | The assignment brief and submission guideline this proposal is written against. |
@@ -78,26 +79,30 @@ index and the decisions not yet taken in [`docs/adr/INDEX.md`](docs/adr/INDEX.md
 
 ## Repository status
 
-**Documentation, plus three services in progress:** the AI Service, the Identity Service and the
-Hiring Service, each listed in the table above with its own README. `docker compose up --build` at
-the root runs the Hiring Service with its PostgreSQL; the Identity Service still has its own
-compose file.
+**Documentation, plus four services in progress:** the AI Service, the Identity Service, the
+Hiring Service and the API Gateway, each listed in the table above with its own README.
+`docker compose up --build` at the root runs the gateway and the Hiring Service with its
+PostgreSQL; the Identity Service still has its own compose file.
 
 The repository is a monorepo. Services live at `services/<name>/` and shared gRPC contracts at
 `proto/`. That layout was settled by starting implementation and still needs an ADR. Each
-service's language is its owner's choice under ADR-005, which is still *Proposed*.
+service's language is its owner's choice under ADR-005, which is still *Proposed*. The gateway
+has no owner yet (ADR-005 rule 5), and it is written rather than configured from an off-the-shelf
+gateway because ADR-009 asks it to verify tokens itself and to record a rejected request — Go for
+consistency with the two services it fronts.
 
 ```
 hire-assist/
 ├── README.md
 ├── .gitignore
-├── docker-compose.yml       # local stack: Hiring Service + PostgreSQL
+├── docker-compose.yml       # local stack: gateway + Hiring Service + PostgreSQL
 ├── deploy/                  # container support files (database init)
 ├── proto/                   # shared gRPC contracts
 ├── services/
 │   ├── ai-service/          # AI Service (Python, gRPC)
 │   ├── identity/            # Identity Service (Go) — members
-│   └── hiring/              # Hiring Service (Go) — job openings
+│   ├── hiring/              # Hiring Service (Go) — job openings
+│   └── gateway/             # API Gateway (Go) — routing, tokens, roles
 └── docs/
     ├── PROPOSAL.md          # submission document
     ├── CONTEXT.md           # working notes
