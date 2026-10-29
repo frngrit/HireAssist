@@ -16,7 +16,7 @@ Hiring ──REST: GET /candidates/{id}──────►  profile + per-crit
 
 | Decision | Where it comes from |
 |---|---|
-| RabbitMQ between Hiring and this service, with retry and dead-letter | ADR-010 (replaces the REST handover and work table of ADR-002; keeps its one-resume-one-unit rule) |
+| RabbitMQ between Hiring and this service, with retry and dead-letter | ADR-013 (replaces the REST handover and work table of ADR-002; keeps its one-resume-one-unit rule) |
 | gRPC to the AI Service, from the shared `proto/` | ADR-007, ADR-005 |
 | REST for everything else | ADR-007 |
 | MongoDB for profiles and scoring output, keyed by `candidate_id` only | ADR-003, ADR-006 |

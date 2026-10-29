@@ -34,8 +34,8 @@ Term project for **Software Architecture**, Chulalongkorn University.
 | [docs/PROPOSAL.md](docs/PROPOSAL.md) | **The submission document.** Project description, target customers, use cases, requirements, ADRs. Source of truth. |
 | [docs/FUNCTIONAL-REQUIREMENTS.md](docs/FUNCTIONAL-REQUIREMENTS.md) | 50 functional requirements, traced to the use case each serves. |
 | [docs/NON-FUNCTIONAL-REQUIREMENTS.md](docs/NON-FUNCTIONAL-REQUIREMENTS.md) | 17 non-functional requirements, grouped by quality attribute. |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture diagram (version 1): the components, what each owns, and how to read the picture. |
-| [docs/diagrams/](docs/diagrams/) | Diagrams as code — the use case diagram (PlantUML source + rendered SVG) and the architecture diagram (hand-laid SVG). |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture diagram (version 2, with the message broker): the components, what each owns, and how to read the picture. |
+| [docs/diagrams/](docs/diagrams/) | Diagrams — the use case diagram (PlantUML source + rendered PNG), the architecture diagram version 2 (SVG source + rendered PNG) and version 1 (draw.io PNG). |
 | [docs/SERVICE-OPERATIONS-COLLABORATORS.md](docs/SERVICE-OPERATIONS-COLLABORATORS.md) | Each service's operations and who it collaborates with. |
 | [services/ai-service/](services/ai-service/) | **Code.** The AI Service — Python, uv, gRPC. The first implemented service. |
 | [services/identity/](services/identity/) | **Code.** The Identity Service — Go, net/http, PostgreSQL, REST. Member CRUD and signing in (UC-0): ES256 access tokens and rotating refresh tokens (ADR-009). |

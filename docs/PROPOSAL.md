@@ -749,6 +749,10 @@ and cannot drift between a summary and the record it summarises.
 | [ADR-007](adr/ADR-007-grpc-for-the-ai-service.md) | gRPC on the AI Service boundary — the one exception to REST, for a compiled contract and generated clients on both sides | Accepted |
 | [ADR-008](adr/ADR-008-profile-extraction-is-a-model-call.md) | Turning a resume into a candidate profile is a model call — extracting the text from the PDF stays deterministic in Resume Processing, and no model receives a file | Accepted |
 | [ADR-009](adr/ADR-009-jwt-with-refresh-tokens.md) | Short-lived JWT access tokens with rotating refresh tokens | **Proposed** |
+| [ADR-010](adr/ADR-010-verification-at-the-gateway-only.md) | The gateway is the only place an access token is verified; the services behind it trust the deployment's private network | **Proposed** |
+| [ADR-011](adr/ADR-011-hiring-document-store.md) | Interview guides live in a document store belonging to the Hiring Service | Accepted |
+| [ADR-012](adr/ADR-012-refresh-token-cookie-at-the-gateway.md) | The gateway keeps the web application's refresh token in an HttpOnly cookie, so no script can read it and a session survives a reload | Accepted |
+| [ADR-013](adr/ADR-013-rabbitmq-for-the-screening-handover.md) | RabbitMQ carries the screening handover — one message per resume each way between Hiring and Resume Processing, replacing ADR-002's REST handover, work table and callback | Accepted |
 
 They are best read in order: **ADR-001** draws the service boundaries, **ADR-002** fills in the
 busiest one, **ADR-003** says what each side of those boundaries stores, and **ADR-004** fills in
@@ -756,6 +760,15 @@ the external dependency the other three are built to survive. **ADR-005** propos
 service's language is chosen and the contract and telemetry rules that would keep several
 languages coherent — recorded as *Proposed*, because the languages themselves wait on service
 ownership.
+
+Later records refine the first four without editing them. **ADR-007** puts the AI Service behind
+gRPC, **ADR-008** makes turning a resume into a profile a model call, **ADR-009**, **ADR-010** and
+**ADR-012** settle signing in, who checks a token and where a browser keeps its session,
+**ADR-011** gives the Hiring Service a document store of its own for interview guides, and
+**ADR-013** moves the screening
+handover onto RabbitMQ — keeping ADR-002's per-resume unit of work and replacing only how it
+crosses between the services. Which parts of each record still hold is tracked in
+[`adr/INDEX.md`](adr/INDEX.md).
 
 Each record carries its rejected alternatives, the argument, the negative implications, and the
 mapping to the functional and non-functional requirements it serves.

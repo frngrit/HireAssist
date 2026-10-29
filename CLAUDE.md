@@ -170,7 +170,7 @@ clone or a new session. Do not link to it by path and do not assume anyone can o
 | The lecturer's ADR samples | **In the repo**, `docs/reference/` | Safe to reference |
 | Course requirements & grading | **In the repo**, `docs/course/` — copies | Safe to reference |
 | The assignment brief and submission guideline | **In the repo**, `docs/course/ASSIGNMENT.md` | Safe to reference |
-| The architecture diagram | **In the repo again** as `docs/diagrams/sw-arch.drawio.png`, drawn in draw.io outside it. The superseded hand-laid `architecture-diagram.svg` was deleted on 2026-10-03; it is in Git history if it is ever wanted. | The `.drawio` source lives outside the repo, so the PNG cannot be edited here — check it against the Service–Operations–Collaborators table and report what differs rather than attempting a fix. |
+| The architecture diagram | **Version 2 is in the repo as code**: `docs/diagrams/sw-arch-v2.svg`, rendered to `sw-arch-v2.png` with `rsvg-convert -z 2` — edit the SVG and re-render, committing both. Version 1, `docs/diagrams/sw-arch.drawio.png`, was drawn in draw.io with its source outside the repo and is kept for history. | Check the diagram against the Service–Operations–Collaborators table whenever either changes. |
 | The ADR Word export, `HireAssist-ADRs.docx` | Moved **outside this repo**, to the sibling `word/` folder | Not linked from the repo. Regenerate with `docs/adr/build-docx.py` if it is needed again — the markdown in `docs/adr/` is the source. |
 | Verbal guidance given in class, or decisions made in chat | Nowhere, unless written down | This is the dangerous one — see below |
 
@@ -214,11 +214,10 @@ Silent synonyms are how a domain model rots.
 
 - **Course requirements** (`docs/course/REQUIREMENTS.md`): REST + gRPC + message broker, API
   gateway, service discovery, RDBMS + NoSQL, 2 load tests, risk matrix, one demonstrated quality
-  attribute. One gap remains: **there is no message broker.** The architecture is REST on every
-  boundary (ADR-001) except the AI Service, which is gRPC (ADR-007). The broker half is a known,
-  documented gap to close before the final submission, not an oversight to design around — the
-  likeliest home for it is the pipeline events Hiring currently pushes synchronously. Do not
-  quietly introduce a broker into a document; taking that step is an ADR.
+  attribute. All three styles are now in place: REST on every boundary (ADR-001), gRPC for the AI
+  Service (ADR-007), and RabbitMQ for the screening handover between Hiring and Resume Processing
+  (ADR-013). Moving anything else onto the broker — the pipeline events are the obvious next
+  candidate — is a new ADR, not a quiet change to a document.
 - **PDPA** is a first-class design force, not a feature. Consent and retention gate what the
   system may do with candidate data.
 - **Never commit real resumes or candidate data.** `/data/` and `/uploads/` are gitignored.

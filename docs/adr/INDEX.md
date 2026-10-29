@@ -25,6 +25,7 @@ The course requires **at least 3 ADRs** as part of the project proposal submissi
 | [ADR-010](ADR-010-verification-at-the-gateway-only.md) | The gateway is the only place an access token is verified | **Proposed** | 2026-10-17 |
 | [ADR-011](ADR-011-hiring-document-store.md) | Interview guides live in a document store belonging to the Hiring Service | Accepted | 2026-10-17 |
 | [ADR-012](ADR-012-refresh-token-cookie-at-the-gateway.md) | The gateway keeps the web application's refresh token in an HttpOnly cookie | Accepted | 2026-10-17 |
+| [ADR-013](ADR-013-rabbitmq-for-the-screening-handover.md) | RabbitMQ carries the screening handover between Hiring and Resume Processing | Accepted | 2026-10-17 |
 
 The first four are best read in order: ADR-001 draws the boundaries, ADR-002 fills in the busiest one,
 ADR-003 says what each side stores, and ADR-004 fills in the dependency the others are built to
@@ -50,8 +51,8 @@ place that tracks which parts of an earlier record no longer hold.
 
 | Record | Still in force | Changed by a later record |
 |---|---|---|
-| **ADR-001** | The five services, the capability boundaries, the gateway, Kubernetes discovery, and REST on every boundary **except the AI Service**. | Its position that role enforcement cannot live at the gateway alone is reversed: the gateway is the only verifier, and the services trust the deployment's private network (ADR-010). The single-backend-language assumption is withdrawn (ADR-005). The workspace concept is gone (ADR-006): the isolation force in *Issue*, the gateway's workspace resolution, the internal-call cost, and the *Identity & Workspace* name. The AI Service boundary is gRPC, not REST (ADR-007); the rule stands everywhere else. Its argument that Resume Processing and the AI Service have opposite resource profiles no longer holds — both now wait on a model call (ADR-008); the boundary stands on failure isolation and credential containment. |
-| **ADR-002** | All of it. | — |
+| **ADR-001** | The five services, the capability boundaries, the gateway, Kubernetes discovery, and REST on every boundary **except the AI Service**. | Its position that role enforcement cannot live at the gateway alone is reversed: the gateway is the only verifier, and the services trust the deployment's private network (ADR-010). The single-backend-language assumption is withdrawn (ADR-005). The workspace concept is gone (ADR-006): the isolation force in *Issue*, the gateway's workspace resolution, the internal-call cost, and the *Identity & Workspace* name. The AI Service boundary is gRPC, not REST (ADR-007); the rule stands everywhere else. Its argument that Resume Processing and the AI Service have opposite resource profiles no longer holds — both now wait on a model call (ADR-008); the boundary stands on failure isolation and credential containment. The screening handover between Hiring and Resume Processing is a message queue, not REST (ADR-013) — a second exception beside the AI Service. |
+| **ADR-002** | The per-resume unit of work, the temporary/permanent failure classification, bounded retry before manual review, idempotent results and the computed completion. | How the work crosses between the services (ADR-013): one RabbitMQ message per resume each way replaces the REST handover, the claimable work table and the REST callback, and the broker's retry and dead-letter queues replace the hand-built retry schedule and failed-row parking. |
 | **ADR-003** | The PostgreSQL / MongoDB split and the rule that decides which store new data goes in. | Documents carry `candidate_id` alone, with no `workspace_id` (ADR-006). The document store is no longer one service's: interview guides go in a MongoDB belonging to the Hiring Service (ADR-011). |
 | **ADR-004** | The single credential, no fallback model, the service being unreachable from the gateway, and the rule that it never receives a raw file. | Those operations are carried over gRPC rather than REST (ADR-007). There are now four, not three: profile extraction is a model call served here (ADR-008), and it is the one operation that receives unstructured resume text, which narrows the minimisation rule and moves the protected-attribute stripping into it. |
 | **ADR-005** | The principle and the guardrails. Still *Proposed* — languages await service ownership. | Its accepted cost of role enforcement implemented once per language is not paid: the check exists only at the gateway (ADR-010). The worst case its access-check argument guards against is now a privilege mistake inside one company, not a cross-company leak (ADR-006). Its contract guardrail now covers two mechanisms: OpenAPI for REST boundaries, a `.proto` for the AI Service (ADR-007). Its Python preference for Resume Processing now rests on PDF text extraction alone — structuring the text is no longer done there (ADR-008). |
@@ -62,6 +63,7 @@ place that tracks which parts of an earlier record no longer hold.
 | **ADR-010** | All of it. Still *Proposed* — it binds two services whose owners have not agreed. | — |
 | **ADR-011** | All of it. | — |
 | **ADR-012** | All of it. | — |
+| **ADR-013** | All of it. | — |
 
 ## Candidate decisions
 

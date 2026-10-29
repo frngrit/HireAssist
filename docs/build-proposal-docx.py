@@ -26,12 +26,12 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
-REPO = "/Users/patiphonpuntusin/Time/Chula/sw-arch/hire-assist"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "docs", "HireAssist-Proposal.docx")
 FR_SRC = os.path.join(REPO, "docs", "FUNCTIONAL-REQUIREMENTS.md")
 NFR_SRC = os.path.join(REPO, "docs", "NON-FUNCTIONAL-REQUIREMENTS.md")
 UC_DIAGRAM = os.path.join(REPO, "docs", "diagrams", "use-case-diagram.png")
-ARCH_DIAGRAM = os.path.join(REPO, "docs", "diagrams", "sw-arch.drawio.png")
+ARCH_DIAGRAM = os.path.join(REPO, "docs", "diagrams", "sw-arch-v2.png")
 SOC_SRC = os.path.join(REPO, "docs", "SERVICE-OPERATIONS-COLLABORATORS.md")
 PROPOSAL = os.path.join(REPO, "docs", "PROPOSAL.md")
 
@@ -757,17 +757,20 @@ arch.left_margin = arch.right_margin = Inches(0.6)
 
 heading(doc, "Microservice Design with Collaborations", first=True)
 para(doc,
-     "Five services behind one API gateway. The diagram shows who calls whom; the table "
-     "below lists every operation each service exposes and every operation it calls on "
-     "another. The two describe the same system and must agree.", after=6)
+     "Five services behind one API gateway, with a message broker carrying the screening "
+     "handover. The diagram shows who calls whom; the table below lists every operation each "
+     "service exposes and every operation it calls on another. The two describe the same "
+     "system and must agree. This is version 2 of the design: the screening handover between "
+     "Hiring and Resume Processing has moved from REST onto RabbitMQ (ADR-013).", after=6)
 
 diagram(doc, ARCH_DIAGRAM, 9.4)
 para(doc,
      "An arrow A \u2192 B means \u201cA calls B\u201d; responses are not drawn. A service\u2019s "
      "private store is its own \u2014 no service reads another\u2019s, it calls the owning "
      "service instead. An adapter box stands for an external system the service reaches "
-     "only through it. Every call is REST over HTTP/JSON except the two into the AI "
-     "Service, which are gRPC. There is no message broker.",
+     "only through it. Green arrows are REST over HTTP/JSON, orange are gRPC (the two into "
+     "the AI Service), and purple are RabbitMQ: Hiring publishes screening.requested, one per "
+     "resume, and Resume Processing publishes screening.completed with the result.",
      size=8.5, italic=True, color=MUTED, align=WD_ALIGN_PARAGRAPH.CENTER, after=10)
 
 subhead(doc, "Service \u2013 Operations \u2013 Collaborators", before=6)
@@ -776,11 +779,14 @@ soc_table(doc, parse_soc(SOC_SRC), [2.4, 2.9, 4.4])
 para(doc, "", after=4)
 para(doc,
      "The API Gateway is the entry point, not a domain service: it terminates TLS, routes, "
-     "rate-limits, resolves the caller\u2019s role, validates the session through the Identity "
-     "Service, and records a rejected request to the access audit log. It owns no data. "
+     "rate-limits, verifies the access token itself against the Identity Service\u2019s public "
+     "key and resolves the caller\u2019s role from it, and records a rejected request to the "
+     "access audit log. It is the only place a token is checked: the services behind it trust "
+     "the deployment\u2019s private network (ADR-010). For the web application it keeps the refresh token in an HttpOnly "
+     "cookie (ADR-012). It owns no data. "
      "External systems \u2014 object storage, the model provider, the email provider \u2014 are each "
      "reached only through an adapter. No service reads another service\u2019s data store; every "
-     "crossing is one of the operations above.",
+     "crossing is one of the operations above or a message on one of the two screening queues.",
      size=9.5, after=0)
 
 doc.save(OUT)

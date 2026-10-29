@@ -8,7 +8,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-REPO = "/Users/patiphonpuntusin/Time/Chula/sw-arch/hire-assist"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT = os.path.join(REPO, "docs", "HireAssist-ADRs.docx")
 INDEX = os.path.join(REPO, "docs", "adr", "INDEX.md")
 

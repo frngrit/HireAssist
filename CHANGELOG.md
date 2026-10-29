@@ -15,6 +15,33 @@ what a session decided, and rewriting it destroys the record of when and why som
 
 ---
 
+## 2026-10-17 23:30 — ADR-013: the broker carries the screening handover; design version 2
+
+- **Two records renumbered after upstream took ADR-010 and ADR-011** (gateway-only verification,
+  Hiring's document store): the refresh-cookie record is now **ADR-012**, and the broker record
+  **ADR-013**. The 15:46, 19:39 and 19:58 entries use the old numbers — read their "ADR-010" and
+  "ADR-011" for the cookie or the broker as ADR-012 and ADR-013. Resume Processing's README and
+  the assignment notes now point at ADR-013.
+- **ADR-013 (Accepted) records RabbitMQ for the UC-2 handover**, as agreed on 2026-10-16 and built
+  in PR #16: one message per resume each way, replacing ADR-002's REST handover, work table and
+  callback while keeping its per-resume unit of work. It meets the course's broker requirement
+  where it removes the most hand-written code. The index records what it changes in ADR-001 and
+  ADR-002; the proposal's ADR table now runs to ADR-013.
+- **The SOC table, the runtime view and the architecture page describe the broker** instead of the
+  REST handover, and Resume Processing's store as built — everything in MongoDB, a gap against
+  ADR-003 now stated. CLAUDE.md's "no broker" constraint is updated.
+- **Architecture diagram version 2 keeps version 1's layout and adds the broker**, as an SVG in the
+  repo (`diagrams/sw-arch-v2.svg`), because version 1's draw.io source is outside the repo.
+- **The proposal and ADR Word documents are rebuilt** for the progress submission; the build
+  scripts find the repository from their own location.
+- **OpenAI is usable as ADR-004's substitute provider** by configuration and was used for the
+  demonstration; Anthropic stays the default. ADR-004 already allowed it, so no new record.
+
+Outstanding: the pipeline events, still pushed synchronously; the scope cut deferring UC-4 to
+UC-6, if the team wants it recorded; an owner for the gateway.
+
+---
+
 ## 2026-10-17 21:45 — Two records written for decisions implementation had already made
 
 - **ADR-010: the gateway is the only place an access token is verified.** *Proposed* — it binds

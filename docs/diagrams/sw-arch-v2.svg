@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HireAssist architecture diagram, version 2 — the draw.io version 1 layout, with the RabbitMQ
+  broker added between Hiring and Resume Processing (ADR-013).
+  Render: rsvg-convert -z 2 docs/diagrams/sw-arch-v2.svg -o docs/diagrams/sw-arch-v2.png
+  Green: REST (ADR-001). Orange: gRPC (ADR-007). Purple: RabbitMQ (ADR-013).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="450" viewBox="0 0 1240 450"
+     font-family="Helvetica, Arial, sans-serif" font-size="12">
+  <defs>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#82b366"/>
+    </marker>
+    <marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d79b00"/>
+    </marker>
+    <marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9673a6"/>
+    </marker>
+    <!-- A service: hexagon 120 × 80 with its top-left corner at the origin. -->
+    <path id="hex" d="M20,0 H100 L120,40 L100,80 H20 L0,40 Z" fill="#ffffff" stroke="#000000" stroke-width="1.2"/>
+    <!-- A private store: cylinder 60 × 60. -->
+    <g id="db">
+      <path d="M0,8 V52 A30,8 0 0 0 60,52 V8" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.2"/>
+      <ellipse cx="30" cy="8" rx="30" ry="8" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.2"/>
+      <path d="M0,14 A30,8 0 0 0 60,14 M0,20 A30,8 0 0 0 60,20" fill="none" stroke="#9673a6" stroke-width="1.2"/>
+    </g>
+  </defs>
+
+  <rect width="1240" height="450" fill="#ffffff"/>
+  <g transform="translate(10,10)">
+
+    <!-- ── REST arrows ───────────────────────────────────────────────────────────── -->
+    <g fill="none" stroke="#82b366" stroke-width="1.3">
+      <path d="M120,205 H207" marker-end="url(#g)"/>
+      <path d="M330,205 H370 V60 H407" marker-end="url(#g)"/>
+      <path d="M370,205 H407" marker-end="url(#g)"/>
+      <path d="M370,205 V350 H407" marker-end="url(#g)"/>
+      <path d="M118,380 H422" marker-end="url(#g)"/>
+      <path d="M470,248 V307" marker-start="url(#g)" marker-end="url(#g)"/>
+      <path d="M561,352 H1040 V249" marker-end="url(#g)"/>
+      <path d="M561,232 H1012" marker-end="url(#g)"/>
+    </g>
+
+    <!-- ── gRPC arrows ───────────────────────────────────────────────────────────── -->
+    <g fill="none" stroke="#d79b00" stroke-width="1.3">
+      <path d="M490,163 V132 H700 V85 H997" marker-end="url(#o)"/>
+      <path d="M1060,163 V128" marker-end="url(#o)"/>
+    </g>
+
+    <!-- ── RabbitMQ arrows ───────────────────────────────────────────────────────── -->
+    <g fill="none" stroke="#9673a6" stroke-width="1.6">
+      <path d="M528,195 H742" marker-start="url(#p)" marker-end="url(#p)"/>
+      <path d="M868,195 H1002" marker-start="url(#p)" marker-end="url(#p)"/>
+    </g>
+
+    <!-- ── Callers ───────────────────────────────────────────────────────────────── -->
+    <use href="#hex" x="0" y="165"/>
+    <text x="60" y="201" text-anchor="middle">HireAssist</text>
+    <text x="60" y="216" text-anchor="middle">Web UI</text>
+
+    <use href="#hex" x="0" y="340"/>
+    <text x="60" y="384" text-anchor="middle">Scheduler</text>
+
+    <!-- ── API Gateway ───────────────────────────────────────────────────────────── -->
+    <rect x="200" y="140" width="52" height="24" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="226" y="157" text-anchor="middle">REST</text>
+    <use href="#hex" x="210" y="165"/>
+    <text x="270" y="201" text-anchor="middle">API</text>
+    <text x="270" y="216" text-anchor="middle">Gateway</text>
+
+    <!-- ── Identity Service ──────────────────────────────────────────────────────── -->
+    <rect x="390" y="0" width="52" height="24" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="416" y="17" text-anchor="middle">REST</text>
+    <use href="#hex" x="410" y="20"/>
+    <text x="462" y="52" text-anchor="middle">Identity</text>
+    <text x="462" y="67" text-anchor="middle">Service</text>
+    <use href="#db" x="500" y="58"/>
+
+    <!-- ── Hiring Service ────────────────────────────────────────────────────────── -->
+    <rect x="390" y="140" width="52" height="24" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="416" y="157" text-anchor="middle">REST</text>
+    <use href="#hex" x="410" y="165"/>
+    <text x="462" y="197" text-anchor="middle">Hiring</text>
+    <text x="462" y="212" text-anchor="middle">Service</text>
+    <use href="#db" x="500" y="205"/>
+    <rect x="566" y="242" width="64" height="46" fill="#ffffff" stroke="#000000"/>
+    <text x="598" y="257" text-anchor="middle" font-size="11">Object</text>
+    <text x="598" y="270" text-anchor="middle" font-size="11">Storage</text>
+    <text x="598" y="283" text-anchor="middle" font-size="11">Adapter</text>
+    <rect x="636" y="242" width="58" height="36" fill="#ffffff" stroke="#000000"/>
+    <text x="665" y="257" text-anchor="middle" font-size="11">Email</text>
+    <text x="665" y="270" text-anchor="middle" font-size="11">Adapter</text>
+
+    <!-- ── Compliance & Insights Service ─────────────────────────────────────────── -->
+    <rect x="390" y="286" width="52" height="24" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="416" y="303" text-anchor="middle">REST</text>
+    <use href="#hex" x="410" y="310"/>
+    <text x="462" y="336" text-anchor="middle">Compliance &amp;</text>
+    <text x="462" y="351" text-anchor="middle">Insights</text>
+    <text x="462" y="366" text-anchor="middle">Service</text>
+    <use href="#db" x="500" y="352"/>
+    <rect x="566" y="366" width="58" height="36" fill="#ffffff" stroke="#000000"/>
+    <text x="595" y="381" text-anchor="middle" font-size="11">Email</text>
+    <text x="595" y="394" text-anchor="middle" font-size="11">Adapter</text>
+
+    <!-- ── RabbitMQ ──────────────────────────────────────────────────────────────── -->
+    <rect x="733" y="148" width="56" height="24" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="761" y="165" text-anchor="middle">AMQP</text>
+    <rect x="745" y="172" width="120" height="46" rx="10" fill="#f3e5f5" stroke="#9673a6" stroke-width="1.4"/>
+    <text x="805" y="199" text-anchor="middle" font-weight="bold">RabbitMQ</text>
+
+    <!-- ── Resume Processing Service ─────────────────────────────────────────────── -->
+    <rect x="990" y="140" width="52" height="24" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="1016" y="157" text-anchor="middle">REST</text>
+    <use href="#hex" x="1000" y="165"/>
+    <text x="1052" y="190" text-anchor="middle">Resume</text>
+    <text x="1052" y="205" text-anchor="middle">Processing</text>
+    <text x="1052" y="220" text-anchor="middle">Service</text>
+    <use href="#db" x="1090" y="205"/>
+    <rect x="1156" y="214" width="64" height="46" fill="#ffffff" stroke="#000000"/>
+    <text x="1188" y="229" text-anchor="middle" font-size="11">Object</text>
+    <text x="1188" y="242" text-anchor="middle" font-size="11">Storage</text>
+    <text x="1188" y="255" text-anchor="middle" font-size="11">Adapter</text>
+
+    <!-- ── AI Service ────────────────────────────────────────────────────────────── -->
+    <rect x="987" y="22" width="52" height="24" fill="#ffe6cc" stroke="#d79b00"/>
+    <text x="1013" y="39" text-anchor="middle">gRPC</text>
+    <use href="#hex" x="1000" y="45"/>
+    <text x="1060" y="81" text-anchor="middle">AI</text>
+    <text x="1060" y="96" text-anchor="middle">Service</text>
+    <rect x="1124" y="67" width="58" height="36" fill="#ffffff" stroke="#000000"/>
+    <text x="1153" y="82" text-anchor="middle" font-size="11">LLM</text>
+    <text x="1153" y="95" text-anchor="middle" font-size="11">Adapter</text>
+  </g>
+</svg>

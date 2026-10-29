@@ -14,8 +14,9 @@ to three documents and must be corrected whenever any of them changes:
 
 Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decomposition.md)),
 **except calls into the AI Service, which are gRPC**
-([ADR-007](adr/ADR-007-grpc-for-the-ai-service.md)). There is no message broker
-([ADR-002](adr/ADR-002-async-screening-pipeline.md)).
+([ADR-007](adr/ADR-007-grpc-for-the-ai-service.md)), **and the screening handover between Hiring
+and Resume Processing, which travels as RabbitMQ messages**
+([ADR-013](adr/ADR-013-rabbitmq-for-the-screening-handover.md)).
 
 ---
 
@@ -56,27 +57,30 @@ Every call below is **REST over HTTP/JSON** ([ADR-001](adr/ADR-001-service-decom
   ([ADR-011](adr/ADR-011-hiring-document-store.md)).
 - **Does** — holds the entire recruiter-facing hiring record: openings and their criteria, batch
   acceptance and per-resume handover, the ranked list, overrides, shortlisting, interview guides.
-- **Called by** — the Gateway; Resume Processing, calling `reportScreeningResult()` back;
-  Compliance, calling `eraseHiringData()`.
-- **Calls** — Resume Processing (`submitResumeForScreening()`, `getCandidateProfile()`); the AI
-  Service (`deriveCriteriaFromDescription()`, `generateInterviewQuestions()`);
-  `Compliance.recordPipelineEvent()`; the Object Storage and Email adapters.
+- **Called by** — the Gateway; Compliance, calling `eraseHiringData()`. **Consumes**
+  `screening.completed` from the broker as `reportScreeningResult()`.
+- **Calls** — Resume Processing (`getCandidateProfile()`); the AI Service
+  (`deriveCriteriaFromDescription()`, `generateInterviewQuestions()`);
+  `Compliance.recordPipelineEvent()`; the Object Storage and Email adapters. **Publishes**
+  `screening.requested`, one per resume, holding each in PostgreSQL until the broker confirms it.
 
 ### Resume Processing Service
 
-- **Owns** — PostgreSQL: the screening work table, candidate identity, the date the data was
-  collected. MongoDB: candidate profiles, parsed resume text, per-criterion scoring output and
-  justifications.
-- **Does** — the per-resume pipeline. Records a handover durably and acknowledges immediately;
-  N replicas claim work rows with `SELECT … FOR UPDATE SKIP LOCKED`; each parses the PDF in
-  process, calls the model to score it, persists, and calls back. Classifies permanent against
-  transient failure, backs off, and parks what will not recover. **This is the service that
-  scales** — NFR-07, the demonstrated quality attribute, is delivered here.
-- **Called by** — Hiring, for the handover and for profile reads; Compliance, for erasure and
-  listing; the Gateway, for recruiter-facing reads. *(How those reads are routed is not yet
-  stated — see Open questions.)*
-- **Calls** — `AI.scoreAgainstCriteria()`; `Hiring.reportScreeningResult()`; the Object Storage
-  adapter.
+- **Owns** — candidate identity and the date the data was collected, candidate profiles, parsed
+  resume text, per-criterion scoring output and justifications. *(ADR-003 puts identity and the
+  collection date in PostgreSQL; the service keeps everything in MongoDB for now.)*
+- **Does** — the per-resume pipeline. N replicas consume `screening.requested` from the broker,
+  each taking a bounded number of messages at a time; each fetches the PDF, extracts its text in
+  process, asks the model for a profile and a score, persists both, and publishes
+  `screening.completed`. A temporary failure goes to a retry queue with a growing delay; a
+  permanent one, or one that exhausts its retries, is dead-lettered with a `failed` result still
+  published. **This is the service that scales** — NFR-07, the demonstrated quality attribute,
+  is delivered here, by adding consumers to the same queue.
+- **Called by** — Hiring, for profile reads; Compliance, for erasure and listing; the Gateway,
+  for recruiter-facing reads. *(How those reads are routed is not yet stated — see Open
+  questions.)* **Consumes** `screening.requested`.
+- **Calls** — `AI.extractProfileFromText()`, `AI.scoreAgainstCriteria()`; the Object Storage
+  adapter. **Publishes** `screening.completed`.
 
 ### AI Service
 
@@ -152,13 +156,14 @@ Two halves. The first must return within two seconds (NFR-04); the second takes 
 Browser → Gateway → Hiring.submitScreeningBatch()
                     Hiring → ObjectStorage.storeResumeFile()          × N
                     Hiring writes the batch and one pending entry per resume
-                    Hiring → ResumeProcessing.submitResumeForScreening()   × N
-                             (batch id, resume id, file key, CRITERIA SNAPSHOT)
-                           ← acknowledged once the work row is committed
-                  ← batch id
+                  ← 202, batch id
+                    Hiring ⇒ broker: screening.requested                × N
+                             (batch id, resume id, file location, CRITERIA SNAPSHOT)
+                           ← confirmed by the broker; unconfirmed ones wait in PostgreSQL
+                             and a relay retries them
 ```
 
-The criteria snapshot travels in the request body. Resume Processing never calls back to fetch
+The criteria snapshot travels in each message. Resume Processing never calls back to fetch
 criteria: that would add a synchronous dependency to the path built to have none, and a snapshot
 pins one criteria version to one resume, so a mid-batch edit cannot invalidate a justification
 already written.
@@ -166,20 +171,22 @@ already written.
 **Screening each resume** — N replicas, working independently
 
 ```
-worker claims a work row (SELECT … FOR UPDATE SKIP LOCKED)
+Resume Processing consumes screening.requested
    → ObjectStorage.fetchResumeFile()
    → extract text from the PDF in process     ← deterministic; no model sees a file
    → AI.extractProfileFromText() → LLM provider   ← cached: once per resume
    → AI.scoreAgainstCriteria() → LLM provider     ← once per resume per opening
    → persist the profile and the scoring output
-   → Hiring.reportScreeningResult()           ← upsert on (batch_id, resume_id)
+   ⇒ broker: screening.completed              ← scored, unparsable or failed
+Hiring consumes screening.completed → reportScreeningResult()   ← idempotent on (batch_id, resume_id)
    → result streams to the ranked list
 ```
 
 A **permanent** failure — a corrupt file, a scanned image with no text layer — is never retried;
-the entry becomes *needs manual review* with the reason. A **transient** failure — 429, 5xx, a
-broken connection, a scoring attempt past its 60-second bound — backs off and retries a bounded
-number of times, then goes to a terminal failed state. A batch is complete when every entry is
+the entry becomes *needs manual review* with the reason. A **transient** failure — the AI Service
+or object storage unreachable — goes to a retry queue and returns after a growing delay, a
+bounded number of times, then is dead-lettered and reported as failed. A result Hiring can never
+accept goes to a dead-letter queue of its own rather than being retried forever. A batch is complete when every entry is
 terminal, which triggers the batch-finished notification.
 
 **Reviewing the results**
@@ -247,6 +254,7 @@ Both are recorded elsewhere; they are repeated here because the runtime view is 
   `getCandidateProfile()` are things a Recruiter looks at, but nothing states whether the Gateway
   routes to Resume Processing directly or Hiring proxies. See [CONTEXT.md](CONTEXT.md).
 - **`recordPipelineEvent()` is a synchronous dependency** in Hiring's write path, and a dropped
-  call leaves a permanently wrong dashboard number with nothing to reconcile against. It is the
-  first place a message broker would earn its keep. See
+  call leaves a permanently wrong dashboard number with nothing to reconcile against. Now that a
+  broker carries the screening handover (ADR-013), publishing these events on it is the obvious
+  fix. See
   [SERVICE-OPERATIONS-COLLABORATORS.md](SERVICE-OPERATIONS-COLLABORATORS.md).

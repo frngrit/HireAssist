@@ -1,19 +1,25 @@
-# Architecture Diagram — version 1
+# Architecture Diagram — version 2
 
 *Microservice Design with Collaborations.* This page is the diagram half of the deliverable; the
 operations half is the [Service–Operations–Collaborators table](SERVICE-OPERATIONS-COLLABORATORS.md).
 The two describe the same services and must agree — the table lists every operation, this page
 shows who calls whom.
 
-This is the first version of the architecture. It will be revised in later progress checkpoints;
-what it must already do is show every component the three core business use cases need — **UC-1**
-create a job opening, **UC-2** batch-screen resumes, **UC-3** generate interview questions — and
-the collaborations between them.
+This is the second version of the architecture, revised for the progress checkpoint. It shows
+every component the three core business use cases need — **UC-1** create a job opening, **UC-2**
+batch-screen resumes, **UC-3** generate interview questions — and the collaborations between them.
+What changed from version 1 is the **message broker**: the screening handover between Hiring and
+Resume Processing now runs over RabbitMQ (ADR-013), and the REST link between them carries only
+profile reads.
 
-![HireAssist architecture diagram](diagrams/sw-arch.drawio.png)
+![HireAssist architecture diagram, version 2](diagrams/sw-arch-v2.png)
 
-*Drawn in draw.io. The `.drawio` source is kept outside this repository, so the PNG here cannot
-be edited in place — change the source and export over it. This page and the
+*Version 1's layout and notation, with the broker added. Diagram as code:
+`diagrams/sw-arch-v2.svg`, rendered with `rsvg-convert -z 2 docs/diagrams/sw-arch-v2.svg -o
+docs/diagrams/sw-arch-v2.png`. Green arrows are REST, orange gRPC, purple RabbitMQ; a cylinder
+beside a service is its private store, and a plain box an adapter to an external system. Version
+1, drawn in draw.io with its source outside this repository, is kept as
+`diagrams/sw-arch.drawio.png`. This page and the
 [Service–Operations–Collaborators table](SERVICE-OPERATIONS-COLLABORATORS.md) must agree with
 what it shows.*
 
@@ -27,8 +33,10 @@ what it shows.*
 - **A service's private store is drawn beside it**, and it is that service's alone. No service
   reads another service's store; it calls the owning service's operation instead.
 - **Arrows are not labelled with operations** — the table lists them. **Every arrow is REST over
-  HTTP/JSON except the two into the AI Service, which are gRPC** (ADR-001, ADR-007). There is no
-  message broker anywhere in the picture.
+  HTTP/JSON except the two into the AI Service, which are gRPC** (ADR-001, ADR-007), **and the
+  screening handover between Hiring and Resume Processing, which runs over the RabbitMQ message
+  broker** (ADR-013): Hiring publishes `screening.requested`, Resume Processing publishes
+  `screening.completed`, and a REST call remains only for reading a candidate's profile.
 - **An adapter box beside a service stands for an external system**, and for the fact that the
   service reaches it only through that adapter — object storage, the model provider, the email
   provider. The providers themselves are not drawn; the point the picture makes is that no
@@ -62,7 +70,8 @@ connected only to the gateway — no other service calls it.
 | **API Gateway** | Single entry point for user traffic: TLS, access-token verification, rate limiting, routing. The System Scheduler is an internal trigger and does not pass through it | — | nothing |
 | **Identity Service** | Who may sign in and with which role | UC-0, UC-6 | PostgreSQL — members, their roles, sessions |
 | **Hiring Service** | The hiring record: openings and criteria, screening batches and their results, shortlist decisions, interview guides | UC-1, UC-2, UC-3 | PostgreSQL — job openings, criteria, batches and per-entry status, scores and overrides, shortlist decisions; MongoDB — interview guides |
-| **Resume Processing Service** | Turning one resume file into a scored candidate profile | UC-2 (per-resume work) | PostgreSQL — the screening work table, candidate identity, collection date; MongoDB — candidate profiles, parsed text, per-criterion scoring output and justifications |
+| **Resume Processing Service** | Turning one resume file into a scored candidate profile | UC-2 (per-resume work) | MongoDB — candidate identity and collection date, candidate profiles, parsed text, per-criterion scoring output and justifications (ADR-003 puts identity and the date in PostgreSQL; not yet done) |
+| **Message broker (RabbitMQ)** | Carrying each resume to screening and its result back, with retry and dead-letter queues | UC-2 | the two screening queues and their retry and dead-letter queues — no domain data beyond ids, a file location and the criteria snapshot |
 | **AI Service** | Every call to the language model, behind domain operations | UC-1, UC-2, UC-3 | nothing — prompts and the model credential only |
 | **Compliance & Insights Service** | Retention enforcement and the pipeline dashboard | UC-4, UC-5 | PostgreSQL — retention policy, pipeline metrics, erasure and access audit logs |
 
@@ -79,7 +88,7 @@ which the diagram touches but does not centre on.
 They were traced in both places for a while, which is how the two drifted apart. One description
 of runtime behaviour, one home for the diagram.
 
-## Why REST everywhere except the AI Service
+## Why REST everywhere except the AI Service and the screening handover
 
 The reasoning behind one protocol was that boundaries are expensive to get wrong and protocols are
 not. A boundary in the wrong place means re-owned data, a re-cut schema and a coordinated release;
@@ -96,9 +105,11 @@ score with the justification quietly missing. The service is internal and never 
 gateway, which is what makes a protocol nobody can read in a network tab acceptable here and
 nowhere else.
 
-**The message broker is still a known gap, and a deliberate one.** A spread of communication styles
-is expected of us — at least one service reached by REST, one by RPC and one driven by a broker —
-and two of the three are now delivered. ADR-001 recorded the shortfall as chosen rather than
-overlooked, and the place the broker would earn its keep is already identified: the pipeline events
-Hiring pushes synchronously into Compliance's write path, where a dropped call leaves a permanently
-wrong dashboard number and nothing to reconcile against. Taking that step is its own record.
+**The message broker now carries the screening handover.** A spread of communication styles is
+expected of us — at least one service reached by REST, one by RPC and one driven by a broker — and
+ADR-013 completes the three. It puts RabbitMQ where it replaces the most hand-written code: the
+per-resume handover between Hiring and Resume Processing, whose work table, retried callback and
+retry schedule ADR-002 had built by hand. ADR-002's per-resume unit of work and failure rules
+stand; only the crossing changed. The pipeline events Hiring pushes synchronously into
+Compliance's write path were the other candidate, and remain the next place the broker would
+earn its keep.

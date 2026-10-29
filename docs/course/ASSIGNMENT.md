@@ -142,6 +142,6 @@ Invitation Email` was removed once it turned out no use case or requirement desc
   hiring record, MongoDB for candidate profiles, justifications and interview guides.
   Authentication is UC-0, signing in.
 - **The broker sits between Hiring and Resume Processing.** Hiring publishes a request to screen
-  each resume and consumes the result, in place of the REST handover and its callback. ADR-010 is
+  each resume and consumes the result, in place of the REST handover and its callback. ADR-013 is
   to record the decision; the architecture diagram, the Service–Operations–Collaborators table
   and the runtime view change with it.

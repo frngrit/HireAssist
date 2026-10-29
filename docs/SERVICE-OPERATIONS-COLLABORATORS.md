@@ -2,13 +2,14 @@
 
 HireAssist · service decomposition per **ADR-001**, as amended by **ADR-006** — 5 services + 1 API
 Gateway. **Every collaboration is REST over HTTP/JSON** (ADR-001) **except calls into the AI
-Service, which are gRPC** (ADR-007). There is no message broker. Only the gRPC calls are marked.
+Service, which are gRPC** (ADR-007), **and the screening handover between Hiring and Resume
+Processing, which is RabbitMQ** (ADR-013). Only the gRPC calls and the messages are marked.
 
 | Service | Operations | Collaborators |
 |---|---|---|
 | **Identity Service**<br><br>*owns: members, their roles<br>and sessions*<br><br>UC-0 · UC-6 | `authenticateMember()`<br>`validateSession()`<br>`listMembers()`<br>`getMember()`<br>`createMember()`<br>`removeMember()`<br>`changeMemberRole()`<br>`setMemberPassword()`<br>`changePassword()` | *(none)* |
-| **Hiring Service**<br><br>*owns: job openings, criteria,<br>screening batches and entry status,<br>scores and overrides, shortlist<br>decisions, interview guides*<br><br>UC-1 · UC-2 · UC-3 | `proposeJobOpening()`<br>`createJobOpening()`<br>`reviseScreeningCriteria()`<br>`getScreeningCriteria()`<br>`getJobOpening()`<br>`listJobOpenings()`<br>`pauseOpening()`<br>`resumeOpening()`<br>`closeOpening()`<br>`submitScreeningBatch()`<br>`getBatchStatus()`<br>`getRankedResults()`<br>`getScreeningResult()`<br>`overrideScore()`<br>`shortlistCandidate()`<br>`generateInterviewGuide()`<br>`reviseGuide()`<br>`getInterviewGuide()`<br>`recordInterviewNote()`<br>`reportScreeningResult()`<br>`eraseHiringData()` | **Object Storage Adapter**<br>　`storeResumeFile()`<br>**Resume Processing Service**<br>　`submitResumeForScreening()`<br>　　*(carries the criteria snapshot)*<br>　`getCandidateProfile()`<br>**AI Service** *(gRPC)*<br>　`deriveCriteriaFromDescription()`<br>　`generateInterviewQuestions()`<br>**Compliance & Insights Service**<br>　`recordPipelineEvent()`<br>**Email Adapter**<br>　`sendEmail()` |
-| **Resume Processing Service**<br><br>*owns: candidate identity and<br>collection date, candidate profiles,<br>parsed resume text, per-criterion<br>scoring output and justifications*<br><br>UC-2 (per-resume work) | `submitResumeForScreening()`<br>`getCandidateProfile()`<br>`listCandidateProfiles()`<br>`listUnparsableResumes()`<br>`eraseCandidateProfile()` | **Object Storage Adapter**<br>　`fetchResumeFile()`<br>**AI Service** *(gRPC)*<br>　`extractProfileFromText()`<br>　`scoreAgainstCriteria()`<br>**Hiring Service**<br>　`reportScreeningResult()` *(callback)* |
+| **Hiring Service**<br><br>*owns: job openings, criteria,<br>screening batches and entry status,<br>scores and overrides, shortlist<br>decisions, interview guides*<br><br>UC-1 · UC-2 · UC-3 | `proposeJobOpening()`<br>`createJobOpening()`<br>`reviseScreeningCriteria()`<br>`getScreeningCriteria()`<br>`getJobOpening()`<br>`listJobOpenings()`<br>`pauseOpening()`<br>`resumeOpening()`<br>`closeOpening()`<br>`submitScreeningBatch()`<br>`getBatchStatus()`<br>`getRankedResults()`<br>`getScreeningResult()`<br>`overrideScore()`<br>`shortlistCandidate()`<br>`generateInterviewGuide()`<br>`reviseGuide()`<br>`getInterviewGuide()`<br>`recordInterviewNote()`<br>`reportScreeningResult()` *(consumes `screening.completed`)*<br>`eraseHiringData()` | **Object Storage Adapter**<br>　`storeResumeFile()`<br>**Message broker** *(RabbitMQ)*<br>　publish `screening.requested`<br>　　*(one per resume; carries the criteria snapshot)*<br>**Resume Processing Service**<br>　`getCandidateProfile()`<br>**AI Service** *(gRPC)*<br>　`deriveCriteriaFromDescription()`<br>　`generateInterviewQuestions()`<br>**Compliance & Insights Service**<br>　`recordPipelineEvent()`<br>**Email Adapter**<br>　`sendEmail()` |
+| **Resume Processing Service**<br><br>*owns: candidate identity and<br>collection date, candidate profiles,<br>parsed resume text, per-criterion<br>scoring output and justifications*<br><br>UC-2 (per-resume work) | `submitResumeForScreening()` *(consumes `screening.requested`)*<br>`getCandidateProfile()`<br>`listCandidateProfiles()`<br>`listUnparsableResumes()`<br>`eraseCandidateProfile()` | **Object Storage Adapter**<br>　`fetchResumeFile()`<br>**AI Service** *(gRPC)*<br>　`extractProfileFromText()`<br>　`scoreAgainstCriteria()`<br>**Message broker** *(RabbitMQ)*<br>　publish `screening.completed`<br>　　*(one per resume, whatever the outcome)* |
 | **AI Service**<br><br>*owns: prompts and model credentials<br>— no domain data*<br><br>UC-1 · UC-2 · UC-3 | `deriveCriteriaFromDescription()`<br>`extractProfileFromText()`<br>`scoreAgainstCriteria()`<br>`generateInterviewQuestions()` | **LLM Adapter**<br>　`complete()` |
 | **Compliance & Insights Service**<br><br>*owns: retention policy, pipeline<br>metrics, erasure and access audit logs*<br><br>UC-4 · UC-5 | `setRetentionPolicy()`<br>`evaluateRetention()`<br>`listHeldExpiries()`<br>`resolveHeldExpiry()`<br>`eraseCandidate()`<br>`getErasureAudit()`<br>`getPipelineDashboard()`<br>`evaluateStaleness()`<br>`recordPipelineEvent()`<br>`recordAuthorisationRejected()` | **Hiring Service**<br>　`eraseHiringData()`<br>**Resume Processing Service**<br>　`eraseCandidateProfile()`<br>　`listCandidateProfiles()`<br>**Email Adapter**<br>　`sendEmail()` |
 
@@ -30,32 +31,36 @@ not an external service — a scanned image with no text layer is a permanent fa
 (FR-2.7), not something to send to an OCR provider.
 
 No service reads another service's data store. Every crossing is one of the operations above —
-REST, or gRPC where marked.
+REST, gRPC where marked, or a message on one of the two screening queues.
 
 ---
 
 ## Notes on five collaborations
 
 **Hiring owns the criteria; the snapshot travels with the handover.** Criteria belong to the Job
-Opening, created in UC-1 and held by Hiring. `submitResumeForScreening()` carries a snapshot of
-them in its body, and Resume Processing stores it on the work row for the life of that entry —
-it never calls back to fetch criteria, and it is not their owner. Two reasons: a fetch per resume
+Opening, created in UC-1 and held by Hiring. Each `screening.requested` message carries a snapshot
+of them, and Resume Processing scores that resume against the snapshot — it never calls back to
+fetch criteria, and it is not their owner. Two reasons: a fetch per resume
 puts a synchronous dependency on Hiring in the middle of the path built to have none, and
 criteria can be edited while a batch runs — a snapshot pins one version to one resume, so every
 justification is defensible against the criteria actually used (NFR-15).
 
-**Screening is asynchronous even though the call is REST.** `submitResumeForScreening()` returns
-as soon as the work row is durably written, not when the resume is scored; Resume Processing
-calls `reportScreeningResult()` back when it has an answer. The queue is a table inside Resume
-Processing (ADR-002), not infrastructure between the two services.
+**Screening is asynchronous, over the broker.** Hiring publishes one `screening.requested` per
+resume and answers the Recruiter at once; Resume Processing consumes it, screens the resume, and
+publishes one `screening.completed`, which Hiring consumes as `reportScreeningResult()`. Hiring
+holds each request in PostgreSQL until RabbitMQ confirms it, so a broker outage delays screening
+and loses nothing (NFR-10). Retries and dead-lettering are queues in the broker. ADR-013 replaced
+ADR-002's REST handover, work table and callback with this; ADR-002's per-resume unit of work
+stands.
 
 **Hiring reads the profile, it does not copy it.** Two main flows need candidate data Hiring does
 not own: generating an interview guide (UC-3) needs the profile, and opening a screened candidate
 needs the written justification. Both are AI-derived documents in Resume Processing's store, so
 Hiring calls `getCandidateProfile()` for them at read time.
 
-The alternative — carrying the justification back inside `reportScreeningResult()` and storing it
-in Hiring — was rejected. It would put an AI-derived document in the relational system of record,
+`screening.completed` does carry the justification, but Hiring keeps only the score, the
+must-have check and the unmet must-haves from it. Storing the justification in Hiring was
+rejected. It would put an AI-derived document in the relational system of record,
 which is exactly the boundary ADR-003 draws to keep anonymisation coarse: *drop the documents,
 keep the counts*. A justification duplicated into Hiring is a second place a person's data must be
 erased from, and a second copy that can disagree with the first. The ranked list itself is
@@ -83,8 +88,9 @@ Recorded here so they are not settled by implementation:
   question — orchestration over choreography — and it needs an ADR before it is built.
 - **The candidate register sits in Resume Processing**, alongside the profile, rather than being
   split from it. Also unrecorded.
-- **Pipeline events are pushed, not published.** With no broker, Hiring calls
-  `recordPipelineEvent()` directly, which makes Compliance a synchronous dependency of Hiring's
-  write path and gives a lost call no retry story. Needs an ADR before it is built.
+- **Pipeline events are pushed, not published.** The broker carries only the screening handover
+  (ADR-013); Hiring calls `recordPipelineEvent()` directly, which makes Compliance a synchronous
+  dependency of Hiring's write path and gives a lost call no retry story. Publishing them on the
+  broker is the obvious alternative now that one exists. Needs an ADR before it is built.
 - ~~**Interview guides are owned by Hiring but are AI-derived documents.**~~ Answered by
   ADR-011: Hiring has a MongoDB database of its own, and guides live in it.
