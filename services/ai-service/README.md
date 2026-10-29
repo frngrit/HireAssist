@@ -95,10 +95,11 @@ Environment variables, all prefixed `AI_SERVICE_`:
 |---|---|---|
 | `AI_SERVICE_PORT` | `50051` | gRPC listen port |
 | `AI_SERVICE_MAX_WORKERS` | `10` | server thread pool size |
-| `AI_SERVICE_MODEL` | `claude-haiku-4-5-20251001` | model to call; attribution records what actually answered |
+| `AI_SERVICE_PROVIDER` | `anthropic` | `anthropic` or `openai` — the two ADR-004 names — or `canned` for scripted demo answers; empty means the default |
+| `AI_SERVICE_MODEL` | the provider's: `claude-haiku-4-5-20251001` or `gpt-4.1-mini` | model to call; attribution records what actually answered |
 | `AI_SERVICE_MAX_TOKENS` | `4096` | ceiling on one answer |
 | `AI_SERVICE_PROMPT_VERSION` | *(built-in)* | overrides the version stamped on answers; leave unset |
-| `AI_SERVICE_API_KEY` | *(unset)* | provider credential; the service refuses to score without it |
+| `AI_SERVICE_API_KEY` | *(unset)* | the chosen provider's credential; the service refuses to score without it |
 | `AI_SERVICE_REQUEST_TIMEOUT_S` | `60` | per-attempt bound, after which the caller retries |
 | `AI_SERVICE_SHUTDOWN_GRACE_S` | `30` | how long an in-flight call has to finish after SIGTERM |
 | `AI_SERVICE_ENABLE_REFLECTION` | `true` | serve gRPC reflection, so tooling needs no `.proto` |
@@ -141,7 +142,7 @@ work history is an ordinary resume, and is accepted.
 | `prompts.py` | the prompts, their JSON schemas, and `PROMPT_VERSION` |
 | `answers.py` | what the model must return, validated, plus the score arithmetic |
 | `provider.py` | the vendor boundary: one protocol, one error type |
-| `providers/anthropic_provider.py` | the only file that imports a vendor SDK |
+| `providers/anthropic_provider.py`, `providers/openai_provider.py` | the only files that import a vendor SDK, one per provider ADR-004 names |
 | `providers/fake.py` | a scripted provider, so the suite never makes a live call |
 
 Changing a prompt changes `PROMPT_VERSION`. It travels with every answer in `ModelAttribution`, so

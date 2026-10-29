@@ -23,6 +23,7 @@ def never_call_a_vendor(monkeypatch):
         raise AssertionError("a test tried to construct a real provider; script a FakeProvider")
 
     monkeypatch.setattr(providers, "AnthropicProvider", forbidden)
+    monkeypatch.setattr(providers, "OpenAIProvider", forbidden)
 
 
 @pytest.fixture

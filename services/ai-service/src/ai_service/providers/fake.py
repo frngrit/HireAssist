@@ -28,7 +28,9 @@ class FakeProvider:
         schema_name: str,
         schema_description: str,
     ) -> ProviderAnswer:
-        self.calls.append({"schema_name": schema_name, "system": system, "user": user})
+        self.calls.append(
+            {"schema_name": schema_name, "system": system, "user": user, "schema": schema}
+        )
 
         if schema_name not in self._answers:
             raise ProviderError(f"fake has no answer scripted for {schema_name}")

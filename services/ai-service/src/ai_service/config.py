@@ -1,6 +1,14 @@
 """Runtime configuration, read from the environment at startup."""
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: The provider used when none is named, and each provider's model when none is.
+DEFAULT_PROVIDER = "anthropic"
+DEFAULT_MODELS = {
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openai": "gpt-4.1-mini",
+}
 
 
 class Settings(BaseSettings):
@@ -10,8 +18,12 @@ class Settings(BaseSettings):
     max_workers: int = 10
 
     # Recorded with every answer so an old justification can be accounted for.
-    provider: str = "anthropic"
-    model: str = "claude-haiku-4-5-20251001"
+    # "anthropic" or "openai" (ADR-004 names both), or "canned" for scripted
+    # demo answers. Empty means the default, so a compose file can pass an
+    # unset variable through.
+    provider: str = DEFAULT_PROVIDER
+    # Empty means the provider's default model, from DEFAULT_MODELS.
+    model: str = ""
     # Overrides the built-in prompts.PROMPT_VERSION. Set it only when running
     # prompts that did not ship with this build; otherwise attribution lies.
     prompt_version: str | None = None
@@ -35,6 +47,13 @@ class Settings(BaseSettings):
     # One scoring attempt may not outlive this. The caller retries with
     # backoff; waiting longer inside the service only hides the outage.
     request_timeout_s: int = 60
+
+    @model_validator(mode="after")
+    def _fill_defaults(self) -> "Settings":
+        self.provider = (self.provider or DEFAULT_PROVIDER).strip().lower()
+        if not self.model:
+            self.model = DEFAULT_MODELS.get(self.provider, DEFAULT_MODELS[DEFAULT_PROVIDER])
+        return self
 
 
 settings = Settings()

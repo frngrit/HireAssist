@@ -342,3 +342,40 @@ def test_thai_is_asked_for_in_the_prompt(make_stub):
 
     assert "in Thai" in provider.calls[0]["user"]
     assert response.justification == "เหมาะสม"
+
+
+def test_only_the_question_citing_an_unknown_criterion_is_dropped(make_stub):
+    """A model once put a question kind where the criterion id belongs. The
+    stray question goes; the rest of the guide survives."""
+    from ai_service.gen.hireassist.ai.v1 import ai_service_pb2 as pb
+
+    stub, provider = make_stub(
+        answers={
+            QUESTIONS_TOOL: {
+                "questions": [
+                    {
+                        "text": "Walk me through the Go service you built.",
+                        "criterion_id": "cr-1",
+                        "source_evidence": "Built payment services in Go.",
+                        "kind": "resume_claim",
+                    },
+                    {
+                        "text": "How would you design for failure?",
+                        "criterion_id": "role_depth",
+                        "source_evidence": "",
+                        "kind": "role_depth",
+                    },
+                ]
+            }
+        }
+    )
+    request = pb.GenerateInterviewQuestionsRequest(
+        profile=pb.CandidateProfile(candidate_id="c-1"),
+        criteria=[criterion("cr-1", "Production Go")],
+    )
+    response = stub.GenerateInterviewQuestions(request)
+
+    assert [q.criterion_id for q in response.questions] == ["cr-1"]
+    # The model was told which ids exist.
+    item = provider.calls[0]["schema"]["properties"]["questions"]["items"]
+    assert item["properties"]["criterion_id"]["enum"] == ["cr-1"]

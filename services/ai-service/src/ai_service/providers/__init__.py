@@ -3,8 +3,9 @@
 from ai_service.providers.anthropic_provider import AnthropicProvider
 from ai_service.providers.canned import CannedProvider
 from ai_service.providers.fake import FakeProvider
+from ai_service.providers.openai_provider import OpenAIProvider
 
-__all__ = ["AnthropicProvider", "CannedProvider", "FakeProvider", "provider_for"]
+__all__ = ["AnthropicProvider", "CannedProvider", "FakeProvider", "OpenAIProvider", "provider_for"]
 
 
 def provider_for(settings):
@@ -21,4 +22,9 @@ def provider_for(settings):
         return None
     if settings.provider == "anthropic":
         return AnthropicProvider(settings)
-    raise ValueError(f"unknown provider {settings.provider!r}")
+    if settings.provider == "openai":
+        return OpenAIProvider(settings)
+    raise ValueError(
+        f"unknown provider {settings.provider!r}: "
+        "set AI_SERVICE_PROVIDER to anthropic, openai or canned"
+    )

@@ -6,6 +6,7 @@ produced it (ADR-004). Change a prompt, change the version — an edited prompt
 under an unchanged version makes past attributions lie.
 """
 
+import copy
 from typing import Any
 
 PROMPT_VERSION = "v1"
@@ -241,6 +242,18 @@ QUESTIONS_SCHEMA: dict[str, Any] = {
     },
     "required": ["questions"],
 }
+
+
+def questions_schema(criterion_ids: list[str]) -> dict[str, Any]:
+    """QUESTIONS_SCHEMA with ``criterion_id`` limited to the ids supplied.
+
+    The model then picks from the role's criteria rather than writing an id of
+    its own; the handler still drops any question that strays.
+    """
+    schema = copy.deepcopy(QUESTIONS_SCHEMA)
+    item = schema["properties"]["questions"]["items"]
+    item["properties"]["criterion_id"] = {"type": "string", "enum": list(criterion_ids)}
+    return schema
 
 
 def questions_user(profile_text: str, criteria_text: str, emphasis: str, language: int) -> str:

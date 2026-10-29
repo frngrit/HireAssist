@@ -263,17 +263,23 @@ class AiService:
                 request.emphasis,
                 request.language,
             ),
-            schema=prompts.QUESTIONS_SCHEMA,
+            schema=prompts.questions_schema([c.id for c in request.criteria]),
             schema_name="interview_questions",
             schema_description="Interview questions, each tied to a criterion.",
             model=Questions,
         )
 
+        # A question the interviewer cannot trace to a criterion is a question
+        # they cannot justify asking, so it is left out. The schema already
+        # lists the supplied ids, but a model can still stray — one has put a
+        # question kind where the id belongs. Dropping that question keeps the
+        # rest of a good guide; only an answer with nothing traceable fails.
         known = {c.id for c in request.criteria}
+        questions = [q for q in answer.parsed.questions if q.criterion_id in known]
         unknown = sorted({q.criterion_id for q in answer.parsed.questions} - known)
         if unknown:
-            # A question the interviewer cannot trace to a criterion is a
-            # question they cannot justify asking.
+            log.warning("dropped questions citing criteria that were not supplied: %s", unknown)
+        if not questions:
             context.abort(
                 grpc.StatusCode.INTERNAL,
                 f"questions cite criteria that were not supplied: {unknown}",
@@ -289,7 +295,7 @@ class AiService:
                         _QUESTION_KINDS.get(q.kind, "QUESTION_KIND_UNSPECIFIED")
                     ),
                 )
-                for q in answer.parsed.questions
+                for q in questions
             ],
             attribution=attribution_for(self.settings, answer.model),
         )

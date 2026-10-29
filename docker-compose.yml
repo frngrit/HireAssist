@@ -108,14 +108,12 @@ services:
       timeout: 5s
       retries: 20
 
-  # The AI Service from services/ai-service, on scripted answers so no API key is needed — each
-  # is labelled `canned` in what it returns. Remove AI_SERVICE_PROVIDER and set
-  # AI_SERVICE_API_KEY to use the real model. The first start installs its dependencies.
-
   # ── Services ────────────────────────────────────────────────────────────────────────────
 
-  # Canned answers, so no API key is needed — each is labelled `canned` in what it returns. Set
-  # AI_SERVICE_PROVIDER to an empty value and AI_SERVICE_API_KEY to use the real model.
+  # Canned answers, so no API key is needed — each is labelled `canned` in what it returns. For a
+  # real model, set in .env AI_SERVICE_PROVIDER to anthropic or openai and AI_SERVICE_API_KEY to
+  # that provider's key; AI_SERVICE_MODEL picks a model other than the provider's default. The
+  # first start installs its dependencies.
   ai-service:
     image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
     working_dir: /repo/services/ai-service
@@ -125,6 +123,7 @@ services:
     environment:
       AI_SERVICE_PROVIDER: "${AI_SERVICE_PROVIDER-canned}"
       AI_SERVICE_API_KEY: "${AI_SERVICE_API_KEY:-}"
+      AI_SERVICE_MODEL: "${AI_SERVICE_MODEL:-}"
       UV_PROJECT_ENVIRONMENT: /opt/venv   # keeps the Linux virtualenv out of the working tree
     entrypoint: ["sh", "-c"]
     command:
@@ -235,6 +234,36 @@ services:
       - "${WEB_PORT:-4173}:80"
     depends_on:
       - gateway
+
+  # ── Database UIs, for looking at the data (not part of the system) ──────────────────────
+  # Off by default: `docker compose --profile tools up -d`.
+
+  # PostgreSQL in the browser: http://localhost:8082 — server postgres, user and password
+  # hireassist, database hiring.
+  adminer:
+    image: adminer:4.8.1
+    profiles: [tools]
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "${ADMINER_PORT:-8082}:8080"
+    depends_on:
+      - postgres
+
+  # MongoDB in the browser: http://localhost:8083 — databases hiring (interview guides) and
+  # hireassist_resume_processing (candidate profiles, screening results).
+  mongo-express:
+    image: mongo-express:1.0.2-20
+    profiles: [tools]
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017
+      ME_CONFIG_BASICAUTH: "false"
+      ME_CONFIG_BASICAUTH_ENABLED: "false"
+    ports:
+      - "${MONGO_EXPRESS_PORT:-8083}:8081"
+    depends_on:
+      mongo:
+        condition: service_healthy
 
 volumes:
   postgres-data:
